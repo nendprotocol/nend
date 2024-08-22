@@ -1,0 +1,70 @@
+{
+  "address": "0xFc281740Bc474E40c0EE8734006806A9d125fBc9",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_tokenOwner",
+          "type": "address"
+        }
+      ],
+      "name": "publicMint",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0xc11c81c29cd5ec1a317a28c85c091f5c9f2117390f2cd4aa9aa0ca3a757acbad",
+  "receipt": {
+    "to": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+    "from": "0x7E8aE5C72eCA86946b695dCc211863D9721A0961",
+    "contractAddress": null,
+    "transactionIndex": 17,
+    "gasUsed": "83904",
+    "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000800000000001000000000100800000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000040000000000000000000000000000000000000004000000000000000000001000000000000080000000000000000100000000000000000000000000000000000000000000000000000000004000000000000100020",
+    "blockHash": "0x6e679588d34f2f2c824683d92e7ebb3a607f7f5f4b3ef55e10d620b57e27cc08",
+    "transactionHash": "0xc11c81c29cd5ec1a317a28c85c091f5c9f2117390f2cd4aa9aa0ca3a757acbad",
+    "logs": [
+      {
+        "transactionIndex": 17,
+        "blockNumber": 35513164,
+        "transactionHash": "0xc11c81c29cd5ec1a317a28c85c091f5c9f2117390f2cd4aa9aa0ca3a757acbad",
+        "address": "0x0000000000000000000000000000000000001010",
+        "topics": [
+          "0x4dfe1bbbcf077ddc3e01291eea2d5c70c2b422b415d95645b9adcfd678cb1d63",
+          "0x0000000000000000000000000000000000000000000000000000000000001010",
+          "0x0000000000000000000000007e8ae5c72eca86946b695dcc211863d9721a0961",
+          "0x000000000000000000000000127685d6dd6683085da4b6a041efcef1681e5c9c"
+        ],
+        "data": "0x0000000000000000000000000000000000000000000000000013d0d9184ddc0000000000000000000000000000000000000000000000000196ca46c7e767fd6f000000000000000000000000000000000000000000000f54296d3954382bcf5100000000000000000000000000000000000000000000000196b675eecf1a216f000000000000000000000000000000000000000000000f5429810a2d5079ab51",
+        "logIndex": 81,
+        "blockHash": "0x6e679588d34f2f2c824683d92e7ebb3a607f7f5f4b3ef55e10d620b57e27cc08"
+      }
+    ],
+    "blockNumber": 35513164,
+    "cumulativeGasUsed": "2870111",
+    "status": 1,
+    "byzantium": true
+  },
+  "args": [],
+  "numDeployments": 1,
+  "solcInputHash": "9f9b24330e64b4aed8e24e00b5f5786e",
+  "metadata": "{\"compiler\":{\"version\":\"0.8.14+commit.80d49f37\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_tokenOwner\",\"type\":\"address\"}],\"name\":\"publicMint\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/voting/DummyS2.sol\":\"DummyS2\"},\"evmVersion\":\"london\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\",\"useLiteralContent\":true},\"optimizer\":{\"enabled\":true,\"runs\":500},\"remappings\":[],\"viaIR\":true},\"sources\":{\"contracts/voting/DummyS2.sol\":{\"content\":\"//SPDX-License-Identifier: UNLICENSED\\r\\npragma solidity ^0.8.0;\\r\\n\\r\\nimport \\\"./interfaces/INextScenario.sol\\\";\\r\\n\\r\\ncontract DummyS2 is INextScenario {\\r\\n    function publicMint(address _tokenOwner) external override {\\r\\n        // Intentionally do nothing\\r\\n    }\\r\\n}\\r\\n\",\"keccak256\":\"0x19a5d2bf9b18fc69202baf1af7c7c2f5a2cca7aff3534755f5739199003b0aef\",\"license\":\"UNLICENSED\"},\"contracts/voting/interfaces/INextScenario.sol\":{\"content\":\"//SPDX-License-Identifier: MIT\\r\\npragma solidity ^0.8.0;\\r\\n\\r\\n\\r\\ninterface INextScenario {\\r\\n    function publicMint(address _tokenOwner) external;\\r\\n}\",\"keccak256\":\"0x00a7b6833cba533f27010a402059422b315316614a69462b95f5c50f6ed206bf\",\"license\":\"MIT\"}},\"version\":1}",
+  "bytecode": "0x60808060405234601457608b908161001a8239f35b600080fdfe6004361015600c57600080fd5b6000803560e01c6332a93a3a14602157600080fd5b34605257602036600319011260525760043573ffffffffffffffffffffffffffffffffffffffff8116036052576080f35b80fdfea2646970667358221220102dc66615b84bc535fa46b4de17af0a02f13d9e9efc18a614e49263898fe76d64736f6c634300080e0033",
+  "deployedBytecode": "0x6004361015600c57600080fd5b6000803560e01c6332a93a3a14602157600080fd5b34605257602036600319011260525760043573ffffffffffffffffffffffffffffffffffffffff8116036052576080f35b80fdfea2646970667358221220102dc66615b84bc535fa46b4de17af0a02f13d9e9efc18a614e49263898fe76d64736f6c634300080e0033",
+  "devdoc": {
+    "kind": "dev",
+    "methods": {},
+    "version": 1
+  },
+  "userdoc": {
+    "kind": "user",
+    "methods": {},
+    "version": 1
+  },
+  "storageLayout": {
+    "storage": [],
+    "types": null
+  }
+}

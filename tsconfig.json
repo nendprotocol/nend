@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+      "target": "es2018",
+      "module": "commonjs",
+      "strict": true,
+      "esModuleInterop": true,
+      "outDir": "dist",
+      "declaration": true,
+      "emitDecoratorMetadata": true,
+      "experimentalDecorators": true,
+      "allowSyntheticDefaultImports": true,
+      "strictPropertyInitialization": false
+    },
+    "include": ["./scripts", "./test", "./deploy", "./typechain-types", "./**/*.ts"],
+    "files": ["./hardhat.config.ts"]
+  }
