@@ -1,19 +1,19 @@
-import {HardhatRuntimeEnvironment} from 'hardhat/types';
+import { HardhatRuntimeEnvironment } from 'hardhat/types';
 
-import {DeployFunction, Deployment} from 'hardhat-deploy/types';
+import { DeployFunction, Deployment } from 'hardhat-deploy/types';
 
 import retry from '../retry';
 import version from '../version';
 import VpcLevels from '../models/vpcLevels';
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-    const {deployments, getNamedAccounts, getChainId} = hre;
-    const {deploy, execute} = deployments;
-    const {deployer} = await getNamedAccounts();
-    const ChainId = await getChainId();
+  const { deployments, getNamedAccounts, getChainId } = hre;
+  const { deploy, execute } = deployments;
+  const { deployer } = await getNamedAccounts();
+  const ChainId = await getChainId();
 
     interface DeploymentExt extends Deployment {
-        newlyDeployed?: boolean; 
+        newlyDeployed?: boolean;
     }
 
     const mainnet = version.mainnet;
@@ -26,9 +26,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const NendDeployment = await deployments.get('NEND');
     const VaultCurationRewardPoolDeployment = await deployments.get('VaultCurationRewardPool');
 
-
-    let VPCBridgeArg1 = [];
-    let VPCBridgeArg2 = [];
+    const VPCBridgeArg1 = [];
+    const VPCBridgeArg2 = [];
     for (const [level] of Object.entries(VpcLevels)) {
       const VpcDeployment = await deployments.get(`VpcLevel${level}`);
       VPCBridgeArg1.push(VpcDeployment.address);
@@ -36,15 +35,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
 
     let chains;
-    if(ChainId === "31337"){
+    if (ChainId === '31337') {
       chains = [31337, 31337]; // Local/Hardhat network
-    }else if (ChainId === "5" || ChainId === "80001" || ChainId === "97" || ChainId === "43113") {
+    } else if (ChainId === '5' || ChainId === '80001' || ChainId === '97' || ChainId === '43113') {
       chains = [80001, 5, 97, 43113]; // Mumbai, Rinkeby, Bnb, Fuji
-    }else if (ChainId === "137" || ChainId === "1" || ChainId === "56" || ChainId === "43114") {
+    } else if (ChainId === '137' || ChainId === '1' || ChainId === '56' || ChainId === '43114') {
       chains = [137, 1, 56, 43114]; // poly, eth, bsc, avax
     }
 
-    while(true) {
+    while (true) {
       try {
         // const VPCBridgeDeployment = await deploy('VPCBridge', {
         //   from: deployer,
@@ -63,22 +62,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             proxyContract: 'UUPS',
             execute: {
               // init: {
-                methodName: 'initialize',
-                args: [VPCBridgeArg1, VPCBridgeArg2, chains, VaultCurationRewardPoolDeployment.address, NendDeployment.address],
+              methodName: 'initialize',
+              args: [VPCBridgeArg1, VPCBridgeArg2, chains, VaultCurationRewardPoolDeployment.address, NendDeployment.address]
               // },
-            },
-          },
+            }
+          }
         });
         break;
-      }catch(err) {
+      } catch (err) {
         console.log(err);
         console.log('Transaction failed');
         await retry();
       }
-  }
-
-}
+    }
+};
 
 export default func;
-func.tags = [ 'VPCBridgeDeployment' ];
+func.tags = ['VPCBridgeDeployment'];
 module.exports.dependencies = ['DummyTicketDeployment', 'VpcDeployment', 'NendDeployment', 'VaultDeployment'];

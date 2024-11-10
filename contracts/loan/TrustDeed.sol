@@ -73,7 +73,7 @@ contract TrustDeed is
         super._burn(tokenId);
     }
 
-    function approve(address to, uint256 tokenId) public virtual override {
+    function approve(address to, uint256 tokenId) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         PeriFiLoan periFiLoan = PeriFiLoan(periFiLoanAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
@@ -89,7 +89,7 @@ contract TrustDeed is
         address from,
         address to,
         uint256 tokenId
-    ) public virtual override {
+    ) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         PeriFiLoan periFiLoan = PeriFiLoan(periFiLoanAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
@@ -105,7 +105,7 @@ contract TrustDeed is
         address from,
         address to,
         uint256 tokenId
-    ) public virtual override {
+    ) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         PeriFiLoan periFiLoan = PeriFiLoan(periFiLoanAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
@@ -122,7 +122,7 @@ contract TrustDeed is
         address to,
         uint256 tokenId,
         bytes memory _data
-    ) public virtual override {
+    ) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         PeriFiLoan periFiLoan = PeriFiLoan(periFiLoanAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
@@ -132,6 +132,10 @@ contract TrustDeed is
             "Loan is overdue"
         );
         super.safeTransferFrom(from, to, tokenId, _data);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721Upgradeable, ERC721URIStorageUpgradeable) returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 
     function _authorizeUpgrade(address) internal virtual override onlyOwner {}

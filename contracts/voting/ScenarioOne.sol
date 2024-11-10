@@ -279,7 +279,7 @@ contract NendNFTs1 is ERC721Upgradeable, ERC721URIStorageUpgradeable, ERC721Enum
     /**
      * @dev See {IERC165-supportsInterface}
      */
-    function supportsInterface(bytes4 interfaceId) public view override(ERC721Upgradeable, ERC721EnumerableUpgradeable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721EnumerableUpgradeable, ERC721URIStorageUpgradeable, ERC721Upgradeable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 

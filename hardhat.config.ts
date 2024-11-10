@@ -14,10 +14,7 @@ import 'hardhat-deploy';
 
 import * as dotenv from 'dotenv';
 
-import {
-  HardhatUserConfig,
-  subtask
-} from 'hardhat/config';
+import { HardhatUserConfig, subtask } from 'hardhat/config';
 import { TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS } from 'hardhat/builtin-tasks/task-names';
 
 dotenv.config();
@@ -39,15 +36,14 @@ const BSCTESTNET_NODE_RPC_URL = 'https://bsct.nendfi.com/';
 const MUMBAI_NODE_RPC_URL = 'https://mumbai.nendfi.com/';
 const FUJI_NODE_RPC_URL = 'https://fuji.nendfi.com/';
 
-
 const ETH_NODE_RPC_URL = 'https://mainnet.infura.io/v3/2e93f34f787d436895efdf935c6605d6';
 const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
 const AVX_NODE_RPC_URL = 'https://api.avax.network/ext/bc/C/rpc';
 // const POLY_NODE_RPC_URL = 'https://polygon-rpc.com';
 const POLY_NODE_RPC_URL = 'https://rpc.ankr.com/polygon';
 
-const TESTNET_WALLET_PRIVATE_KEY = 'testnet_private_key'; // Nend Turbo Main Wallet testnet
-const MAIN_WALLET_PRIVATE_KEY = 'mainnet_private_key'; // Nend Turbo Main Wallet testnet
+const TESTNET_WALLET_PRIVATE_KEY = process.env.TEST_PRIVATE_KEY; // Nend Turbo Main Wallet testnet
+const MAIN_WALLET_PRIVATE_KEY = process.env.MASTER_PRIVATE_KEY; // Nend Turbo Main Wallet testnet
 const ETHERSCAN_API_KEY = 'I5ATRZC5WM7EEBIGGHWXMGECBMZVYWY8KM';
 
 const config: HardhatUserConfig = {
@@ -280,10 +276,15 @@ const config: HardhatUserConfig = {
       throwOnCallFailures: false,
       // blockGasLimit: 30_000_000,
       allowUnlimitedContractSize: true,
-	  gas: 2100000,
-	  gasPrice: 8000000000,
-	  // loggingEnabled: true,
-	  accounts: [{"privateKey": `${TESTNET_WALLET_PRIVATE_KEY}`, "balance": "100000000000000000000"}]
+      gas: 2100000,
+      gasPrice: 8000000000,
+      // loggingEnabled: true,
+      accounts: [
+        {
+          privateKey: `${TESTNET_WALLET_PRIVATE_KEY}`,
+          balance: '100000000000000000000'
+        }
+      ]
     },
     localhost: {
       // live: true,
@@ -292,13 +293,13 @@ const config: HardhatUserConfig = {
       throwOnCallFailures: false,
       // blockGasLimit: 30_000_000,
       allowUnlimitedContractSize: true,
-	  gas: 2100000,
-	  gasPrice: 8000000000,
-	  // loggingEnabled: true,
-	  accounts: [`${TESTNET_WALLET_PRIVATE_KEY}`]
-    },
+      gas: 2100000,
+      gasPrice: 8000000000,
+      // loggingEnabled: true,
+      accounts: [`${TESTNET_WALLET_PRIVATE_KEY}`]
+    }
   },
- /*  namedAccounts: {
+  /*  namedAccounts: {
     deployer: 0
   }, */
   /* gasReporter: {
@@ -309,7 +310,7 @@ const config: HardhatUserConfig = {
     apiKey: {
       rinkeby: `${ETHERSCAN_API_KEY}`,
       goerli: `${ETHERSCAN_API_KEY}`
-    } 
+    }
   }, */
   // specify separate cache for hardhat, since it could possibly conflict with foundry's
   paths: { cache: 'hh-cache' }

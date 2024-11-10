@@ -46,7 +46,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             execute: {
                 // init: {              
                   methodName: 'initialize',
-                  args: [ChainId === "5" || ChainId === "137" ? true : false, chains],
+                  args: [ChainId === "5" || ChainId === "56" ? true : false, chains],
                 // },
             },
           },

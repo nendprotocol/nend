@@ -17,7 +17,7 @@
     "aws-sdk": "^2.1201.0",
     "class-transformer": "^0.5.1",
     "ethers-eip712": "^0.2.0",
-    "hardhat": "https://github.com/0age/hardhat/releases/download/viaIR-2.9.3/hardhat-v2.9.3.tgz",
+    "hardhat": "^2.9.3",
     "pg": "^8.8.0",
     "typeorm": "^0.3.7"
   },

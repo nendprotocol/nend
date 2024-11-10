@@ -21,6 +21,15 @@ contract PeriFiNFT is ERC721, ERC721URIStorage, Ownable {
         _setTokenURI(tokenId, uri);
     }
 
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
+    }
+
     // The following functions are overrides required by Solidity.
 
     function _burn(uint256 tokenId)

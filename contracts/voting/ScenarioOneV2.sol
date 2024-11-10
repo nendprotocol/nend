@@ -329,7 +329,7 @@ contract PERIv2 is
     )
         public
         view
-        override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
+        override(ERC721EnumerableUpgradeable, ERC721URIStorageUpgradeable, ERC721Upgradeable)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);

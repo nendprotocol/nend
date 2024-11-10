@@ -898,7 +898,7 @@ contract PeriFiLoan is
             block.timestamp > indexToMaturityDate[_loanIndex] + extraDuration;
     }
 
-    function approve(address to, uint256 tokenId) public virtual override {
+    function approve(address to, uint256 tokenId) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
 
@@ -910,7 +910,7 @@ contract PeriFiLoan is
         address from,
         address to,
         uint256 tokenId
-    ) public virtual override {
+    ) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
 
@@ -922,7 +922,7 @@ contract PeriFiLoan is
         address from,
         address to,
         uint256 tokenId
-    ) public virtual override {
+    ) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
 
@@ -935,7 +935,7 @@ contract PeriFiLoan is
         address to,
         uint256 tokenId,
         bytes memory _data
-    ) public virtual override {
+    ) public virtual override(ERC721Upgradeable, IERC721Upgradeable) {
         PeriFiAdmin periFiAdmin = PeriFiAdmin(periFiAdminAddr);
         uint256 extraDuration = periFiAdmin.preLiquidationDuration();
 
