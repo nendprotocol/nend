@@ -1,20 +1,20 @@
 ﻿// import { ApiProperty } from "@nestjs/swagger";
 // import { DistributionConfigurationSummaryList } from "aws-sdk/clients/imagebuilder";
-import { Transform } from "class-transformer";
-import { BondQuoteToken } from "..//entities/bondQuoteToken.entity";
-import { StakeToken } from "../entities/stakeToken.entity";
-import { VaultProxy } from "..//entities/vaultProxy.entity";
-import { Chain } from "../entities/chain.entity";
-import { PaymentToken } from "../entities/paymentToken.entity";
-import { Vpc } from "../entities/vpc.entity";
+// import { Transform } from 'class-transformer';
+import { BondQuoteToken } from '..//entities/bondQuoteToken.entity';
+import { StakeToken } from '../entities/stakeToken.entity';
+import { VaultProxy } from '..//entities/vaultProxy.entity';
+import { Chain } from '../entities/chain.entity';
+import { PaymentToken } from '../entities/paymentToken.entity';
+import { Vpc } from '../entities/vpc.entity';
 
 export class PagedListModelWithSort<T> {
-    items: Array<T>;
-    page: number;
-    pageSize: number;
-    totalItemCount: number;
-    sortBy: string;
-    sortOrder: string;
+  items: Array<T>;
+  page: number;
+  pageSize: number;
+  totalItemCount: number;
+  sortBy: string;
+  sortOrder: string;
 }
 
 // export class PagedListModel<T> {
@@ -29,69 +29,67 @@ export class PagedListModelWithSort<T> {
 // }
 
 export class KeyValuePair {
-    key: string;
-    value: string;
+  key: string;
+  value: string;
 }
 
 export class GlobalSettingsModel {
-    chains: Chain[];
-    paymentTokens: PaymentToken[];
-    stakeTokens: StakeToken[];
-    bondQuoteTokens: BondQuoteToken[];
-    loanDurations: any //string[];
-    vpcs: Vpc[];
-    vaultProxies: VaultProxy[];
+  chains: Chain[];
+  paymentTokens: PaymentToken[];
+  stakeTokens: StakeToken[];
+  bondQuoteTokens: BondQuoteToken[];
+  loanDurations: any; // string[];
+  vpcs: Vpc[];
+  vaultProxies: VaultProxy[];
 }
 
 export class CollectionStatsModel {
-    one_day_volume: number;
-    one_day_change: number;
-    one_day_sales: number;
-    one_day_average_price: number;
-    seven_day_volume: number;
-    seven_day_change: number;
-    seven_day_sales: number;
-    seven_day_average_price: number;
-    thirty_day_volume: number;
-    thirty_day_change: number;
-    thirty_day_sales: number;
-    thirty_day_average_price: number;
-    total_volume: number;
-    total_sales: number;
-    total_supply: number;
-    count: number;
-    num_owners: number;
-    average_price: number;
-    num_reports: number;
-    market_cap: number;
-    floor_price: number;
+  one_day_volume: number;
+  one_day_change: number;
+  one_day_sales: number;
+  one_day_average_price: number;
+  seven_day_volume: number;
+  seven_day_change: number;
+  seven_day_sales: number;
+  seven_day_average_price: number;
+  thirty_day_volume: number;
+  thirty_day_change: number;
+  thirty_day_sales: number;
+  thirty_day_average_price: number;
+  total_volume: number;
+  total_sales: number;
+  total_supply: number;
+  count: number;
+  num_owners: number;
+  average_price: number;
+  num_reports: number;
+  market_cap: number;
+  floor_price: number;
 }
 
 export class AssetTrait {
-    trait_type: string;
-    value: string;
-    display_type: string;
-    max_value: number | null;
-    trait_count: number | null;
-    matching_trait_count: number | null;
-    order: number | null;
+  trait_type: string;
+  value: string;
+  display_type: string;
+  max_value: number | null;
+  trait_count: number | null;
+  matching_trait_count: number | null;
+  order: number | null;
 }
 
 export class AssetTraitKV {
-    trait_type: string;
-    value: string;
+  trait_type: string;
+  value: string;
 }
 
 export class IpfsMetadata {
-    name: string;
-    description: string;
-    type: number;
-    attributes: AssetTraitKV[];
-    asset: string;
-    thumbnail: string;
+  name: string;
+  description: string;
+  type: number;
+  attributes: AssetTraitKV[];
+  asset: string;
+  thumbnail: string;
 }
-
-
 
 // export class MarketplaceFilters {
 //     @ApiProperty()

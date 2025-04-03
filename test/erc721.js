@@ -20,7 +20,7 @@ describe('PeriFiNFT contract', function () {
     const tx = await hardhatFactory.deploy(testName, testSymbol);
     await tx.wait();
     const addr = await hardhatFactory.addressOf(0);
-    const ERC721 = await ethers.getContractFactory('PeriFiNFT');
+    const ERC721 = await ethers.getContractFactory('NendNFTs1');
     perifiNFT = await ERC721.attach(addr);
   });
   it('mint and check uri', async () => {

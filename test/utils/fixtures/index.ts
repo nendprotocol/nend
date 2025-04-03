@@ -16,6 +16,7 @@ import { conduitFixture } from './conduit';
 import { create2FactoryFixture } from './create2';
 import { marketplaceFixture } from './marketplace';
 import { tokensFixture } from './tokens';
+// import { chai, setupPromise } from './setup';
 
 export { conduitFixture } from './conduit';
 export {
@@ -24,8 +25,9 @@ export {
   fixtureERC1155,
   tokensFixture
 } from './tokens';
-
 const { provider } = ethers;
+// const { expect } = chai;
+
 
 export const seaportFixture = async (owner: Wallet) => {
   const EIP1271WalletFactory = await ethers.getContractFactory('EIP1271Wallet');
@@ -836,4 +838,5 @@ export const seaportFixture = async (owner: Wallet) => {
   };
 };
 
+// export { chai, setupPromise };
 export type SeaportFixtures = Awaited<ReturnType<typeof seaportFixture>>;

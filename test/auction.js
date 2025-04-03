@@ -181,7 +181,8 @@ describe('Auction via Seaport', function () {
         await expect(totalFilled).equal(1);
         await expect(totalSize).equal(1);
       });
-      it('expired auction', async () => {
+
+      it('expired auction case 1', async () => {
         const startTime = await (
           await ethers.provider.getBlock('latest')
         ).timestamp;
@@ -231,12 +232,13 @@ describe('Auction via Seaport', function () {
           expiredTimestamp
         ]);
         await ethers.provider.send('evm_mine', []);
+
         await expect(marketplaceContract
           .connect(buyer)
           .fulfillOrder(order, toKey(false)))
           .to.be.revertedWith('reverted with custom error \'InvalidTime()\'');
       });
-      it('expired auction', async () => {
+      it('expired auction case 2', async () => {
         const startTime = await (
           await ethers.provider.getBlock('latest')
         ).timestamp;

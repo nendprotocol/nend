@@ -7,7 +7,7 @@ import "../vault/Vault.sol";
 import "./interfaces/ILendingPoolStaking.sol";
 import "../test/Testing.sol";
 import "../access/SimpleRoleAccess.sol";
-import "../access/MWOwnable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract LendingPoolStakingV2 is
@@ -32,9 +32,14 @@ contract LendingPoolStakingV2 is
     mapping(address => mapping(address => uint256)) userToStakeTokenToLastEscrowId;
     mapping(address => mapping(uint8 => uint256))
         public lastEscrowRewardByToken_Duration;
-
     // Old storage (keep for backward compatibility)
     Stake[] private _oldStakes;
+    uint48[3] public stakeDurations;
+    // Token address => duration id => amount
+    mapping(address => mapping(uint8 => uint256))
+        public totalStakedByToken_Duration;
+    uint8[3] public rewardAllocations;
+    uint256 public poolRollOver;
 
     // New storage
     mapping(uint256 => Stake) public stakes;
@@ -42,12 +47,6 @@ contract LendingPoolStakingV2 is
     mapping(uint256 => bool) public isActiveStake;
     uint256[] public activeStakeIds;
 
-    uint48[3] public stakeDurations;
-    // Token address => duration id => amount
-    mapping(address => mapping(uint8 => uint256))
-        public totalStakedByToken_Duration;
-    uint8[3] public rewardAllocations;
-    uint256 public poolRollOver;
 
     // Flag to track if migration has happened
     bool public migrationCompleted;

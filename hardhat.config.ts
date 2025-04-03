@@ -1,21 +1,21 @@
+import '@typechain/hardhat';
 import '@nomiclabs/hardhat-waffle';
 import '@nomiclabs/hardhat-ethers';
 import '@nomiclabs/hardhat-etherscan';
 
 import '@openzeppelin/hardhat-upgrades';
 
-import '@typechain/hardhat';
-
 import 'hardhat-gas-reporter';
 
 import 'solidity-coverage';
 
-import 'hardhat-deploy';
-
 import * as dotenv from 'dotenv';
 
 import { HardhatUserConfig, subtask } from 'hardhat/config';
+// import { HardhatConfig } from 'hardhat/types';
 import { TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS } from 'hardhat/builtin-tasks/task-names';
+
+import 'hardhat-deploy';
 
 dotenv.config();
 
@@ -32,19 +32,19 @@ subtask(TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS).setAction(
 // Go to https://hardhat.org/config/ to learn more
 
 const GOERLI_NODE_RPC_URL = 'https://goerli.nendfi.com/';
-const BSCTESTNET_NODE_RPC_URL = 'https://bsct.nendfi.com/';
+const BSCTESTNET_NODE_RPC_URL = 'https://data-seed-prebsc-2-s3.bnbchain.org:8545/';
 const MUMBAI_NODE_RPC_URL = 'https://mumbai.nendfi.com/';
 const FUJI_NODE_RPC_URL = 'https://fuji.nendfi.com/';
 
-const ETH_NODE_RPC_URL = 'https://mainnet.infura.io/v3/2e93f34f787d436895efdf935c6605d6';
+const ETH_NODE_RPC_URL = `https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
 const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
 const AVX_NODE_RPC_URL = 'https://api.avax.network/ext/bc/C/rpc';
 // const POLY_NODE_RPC_URL = 'https://polygon-rpc.com';
 const POLY_NODE_RPC_URL = 'https://rpc.ankr.com/polygon';
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
 
 const TESTNET_WALLET_PRIVATE_KEY = process.env.TEST_PRIVATE_KEY; // Nend Turbo Main Wallet testnet
 const MAIN_WALLET_PRIVATE_KEY = process.env.MASTER_PRIVATE_KEY; // Nend Turbo Main Wallet testnet
-const ETHERSCAN_API_KEY = 'I5ATRZC5WM7EEBIGGHWXMGECBMZVYWY8KM';
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -67,7 +67,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1000000
+            runs: 1000000,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -80,7 +85,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1000000
+            runs: 1000000,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -93,7 +103,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1000000
+            runs: 1000000,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -106,7 +121,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1000000
+            runs: 1000000,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -119,7 +139,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1000000
+            runs: 1000000,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -132,7 +157,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 1000000
+            runs: 1000000,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -158,7 +188,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 500
+            runs: 500,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -171,7 +206,12 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 500
+            runs: 500,
+            details: {
+              yulDetails: {
+                optimizerSteps: 'u'
+              }
+            }
           },
           debug: {
             debugInfo: []
@@ -299,7 +339,7 @@ const config: HardhatUserConfig = {
       accounts: [`${TESTNET_WALLET_PRIVATE_KEY}`]
     }
   },
-  /*  namedAccounts: {
+  /* namedAccounts: {
     deployer: 0
   }, */
   /* gasReporter: {
@@ -313,6 +353,16 @@ const config: HardhatUserConfig = {
     }
   }, */
   // specify separate cache for hardhat, since it could possibly conflict with foundry's
-  paths: { cache: 'hh-cache' }
+  namedAccounts: {
+    deployer: {
+      default: 0
+      // Add network-specific accounts if needed
+    }
+  },
+  paths: {
+    cache: 'hh-cache',
+    deploy: ['deploy'],
+    deployments: 'deployments'
+  }
 };
 export default config;

@@ -7,10 +7,11 @@ import {
   TestERC20
 } from '../../typechain-types';
 import { buildOrderStatus, toBN, toKey } from '../utils/encoding';
-import { seaportFixture, SeaportFixtures } from '../utils/fixtures';
+import { /* chai, setupPromise,  */seaportFixture, SeaportFixtures } from '../utils/fixtures';
 import { getWalletWithEther } from '../utils/impersonate';
 import { AdvancedOrder, ConsiderationItem } from '../utils/types';
 
+// const { expect } = chai;ß
 const IS_FIXED = true;
 
 describe('Partial fill fractions can overflow to reset an order', async () => {
@@ -38,6 +39,9 @@ describe('Partial fill fractions can overflow to reset an order', async () => {
     if (process.env.REFERENCE) {
       this.skip();
     }
+
+    // await setupPromise;
+
     alice = await getWalletWithEther();
     bob = await getWalletWithEther();
     carol = await getWalletWithEther();

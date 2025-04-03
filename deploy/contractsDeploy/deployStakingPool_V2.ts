@@ -34,7 +34,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         //   deterministicDeployment: mainnet ? ethers.utils.formatBytes32String(`${MainnetSalt}`) : turbo ? ethers.utils.formatBytes32String(`${TurboSalt}`) : ethers.utils.formatBytes32String(`${TestnetSalt}`)
         // });
 
-        const StakingDeployment = await deploy('Staking', {
+        const StakingDeployment = await deploy('StakingPool', {
           from: deployer,
           contract: 'LendingPoolStakingV2',
           log: true,
@@ -48,7 +48,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         if (StakingDeployment.newlyDeployed) {
           console.log('Migrating stake data from array to mapping...');
           await execute(
-            'Staking',
+            'StakingPool',
             { from: deployer, log: true },
             'migrateStakesToMapping'
           );
@@ -64,5 +64,5 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 };
 
 export default func;
-func.tags = ['StakingDeployment_V2'];
+func.tags = ['StakingPoolDeployment_V2'];
 module.exports.dependencies = ['NendDeployment', 'VaultDeployment'];

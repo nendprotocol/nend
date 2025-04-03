@@ -1,17 +1,19 @@
-async function main() {
-  const name = "Curation Reward Pool";
+const { ethers } = require('hardhat');
+
+async function main () {
+  const name = 'Curation Reward Pool';
 
   const [deployer] = await ethers.getSigners();
 
-  console.log("Deploying contract with the account:", deployer.address);
+  console.log('Deploying contract with the account:', deployer.address);
 
-  const factory = await ethers.getContractFactory("Vault");
+  const factory = await ethers.getContractFactory('Vault');
 
   const contract = await factory.deploy(name);
 
   await contract.deployed();
 
-  console.log(`Contract address`, contract.address);
+  console.log('Contract address', contract.address);
 }
 
 main()

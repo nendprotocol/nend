@@ -7,10 +7,12 @@ import {
   TestERC721
 } from '../../typechain-types';
 import { buildResolver, toBN, toKey } from '../utils/encoding';
-import { seaportFixture, SeaportFixtures } from '../utils/fixtures';
+import { /* chai, setupPromise,  */seaportFixture, SeaportFixtures } from '../utils/fixtures';
 import { getWalletWithEther } from '../utils/impersonate';
 import { AdvancedOrder } from '../utils/types';
 const { merkleTree } = require('../utils/criteria');
+
+// const { expect } = chai;
 
 const IS_FIXED = true;
 
@@ -41,6 +43,7 @@ describe('Criteria resolver allows root hash to be given as a leaf', async () =>
     if (process.env.REFERENCE) {
       this.skip();
     }
+    // await setupPromise;
     alice = await getWalletWithEther();
     bob = await getWalletWithEther();
     carol = await getWalletWithEther();

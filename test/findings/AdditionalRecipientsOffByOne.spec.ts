@@ -6,12 +6,14 @@ import {
   TestERC721
 } from '../../typechain-types';
 import { buildOrderStatus, getBasicOrderParameters } from '../utils/encoding';
-import { seaportFixture, SeaportFixtures } from '../utils/fixtures';
+import { /* chai, setupPromise,  */seaportFixture, SeaportFixtures } from '../utils/fixtures';
 import { getWalletWithEther } from '../utils/impersonate';
 import { AdvancedOrder, ConsiderationItem } from '../utils/types';
 import { getScuffedContract } from 'scuffed-abi';
 import { hexZeroPad } from 'ethers/lib/utils';
 import { network } from 'hardhat';
+
+// const { expect } = chai;
 
 const IS_FIXED = true;
 
@@ -37,6 +39,7 @@ describe('Additional recipients off by one error allows skipping second consider
   });
 
   before(async function () {
+    // await setupPromise;
     alice = await getWalletWithEther();
     bob = await getWalletWithEther();
     carol = await getWalletWithEther();
@@ -113,11 +116,9 @@ describe('Additional recipients off by one error allows skipping second consider
         .slice(0, 66)
         .concat(hexZeroPad('0x', 96).slice(2));
       const scuffedContract = getScuffedContract(marketplaceContract);
-      const scuffed = scuffedContract.fulfillBasicOrder({
-        parameters: basicOrderParameters
-      });
-      scuffed.parameters.signature.length.replace(100);
-      scuffed.parameters.signature.tail.replace(carol.address);
+      const scuffed = scuffedContract.fulfillBasicOrder(basicOrderParameters);
+      (scuffed as any).parameters.signature.length.replace(100);
+      (scuffed as any).parameters.signature.tail.replace(carol.address);
 
       maliciousCallData = scuffed.encode();
     });

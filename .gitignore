@@ -3,6 +3,7 @@ node_modules
 coverage
 coverage.json
 typechain-types
+typechain-types_back
 
 #Hardhat files
 artifacts/
@@ -27,3 +28,6 @@ __pycache__
 node_modules/
 
 package-lock.json
+yarn.lock
+
+temp/

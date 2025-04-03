@@ -1,18 +1,18 @@
-import {HardhatRuntimeEnvironment} from 'hardhat/types';
-import {DeployFunction, Deployment} from 'hardhat-deploy/types';
-const {ethers} = require("hardhat");
+import { HardhatRuntimeEnvironment } from 'hardhat/types';
+import { DeployFunction, Deployment } from 'hardhat-deploy/types';
 import version from '../version';
 import NendInflationAmounts from '../models/nendInflation';
 import retry from '../retry';
+const { ethers } = require('hardhat');
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-    const {deployments, getNamedAccounts, getChainId} = hre;
-    const {deploy, execute} = deployments;
-    const {deployer} = await getNamedAccounts();
-    const ChainId = await getChainId();
+  const { deployments, getNamedAccounts, getChainId } = hre;
+  const { deploy, execute } = deployments;
+  const { deployer } = await getNamedAccounts();
+  const ChainId = await getChainId();
 
     interface DeploymentExt extends Deployment {
-        newlyDeployed?: boolean; 
+        newlyDeployed?: boolean;
     }
 
     const mainnet = version.mainnet;
@@ -23,23 +23,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     const StakingDeployment : DeploymentExt = await deployments.get('Staking');
 
-        while(true) {
-            try {
-              const StakingDeploymentExecuteinitalizeV2 = await execute('Staking',
-                {from: deployer, log: true},
-                'initalizeV2'
-              );	
-              break;
-            }catch(err) {
-              console.log(err);
-              console.log('Transaction failed');
-              await retry();
-            }
-        }
-
-    
-
-}
+    while (true) {
+      try {
+        const StakingDeploymentExecuteinitalizeV2 = await execute('Staking',
+          { from: deployer, log: true },
+          'migrateStakesToMapping'
+        );
+        break;
+      } catch (err) {
+        console.log(err);
+        console.log('Transaction failed');
+        await retry();
+      }
+    }
+};
 
 export default func;
-func.tags = [ 'StakingExecuteInitializeV2' ];
+func.tags = ['StakingExecuteInitializeV2'];

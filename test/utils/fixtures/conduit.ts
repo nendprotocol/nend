@@ -10,6 +10,8 @@ import {
 import { deployContract } from '../contracts';
 import { randomHex } from '../encoding';
 import { whileImpersonating } from '../impersonate';
+// import { chai, setupPromise } from './setup'; // Adjust the path as necessary
+// const { expect } = chai;
 
 const deployConstants = require('../../../constants/constants');
 
@@ -17,6 +19,7 @@ export const conduitFixture = async (
   create2Factory: ImmutableCreate2FactoryInterface,
   owner: Wallet
 ) => {
+  // await setupPromise;
   let conduitController: ConduitControllerInterface;
   let conduitImplementation: any;
   if (process.env.REFERENCE) {

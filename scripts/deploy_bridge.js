@@ -1,27 +1,29 @@
-async function main() {
-    const [deployer] = await ethers.getSigners();
+const { ethers } = require('hardhat');
 
-    console.log("Deploying Bridge contract with the account:", deployer.address);
+async function main () {
+  const [deployer] = await ethers.getSigners();
 
-    console.log("Account balance:", (await deployer.getBalance()).toString());
-    
-    const nendFactory = await ethers.getContractFactory("NENDCrowdSale");
-    const nend = await nendFactory.attach("0x211dFaa50273072e12C092604dF86F969F82e0D2");
+  console.log('Deploying Bridge contract with the account:', deployer.address);
 
-    const bridgeFactory = await ethers.getContractFactory("NENDBridge");
+  console.log('Account balance:', (await deployer.getBalance()).toString());
 
-    const bridge = await bridgeFactory.deploy(nend.address, [80001, 4, 7]);
+  const nendFactory = await ethers.getContractFactory('NENDCrowdSale');
+  const nend = await nendFactory.attach('0x211dFaa50273072e12C092604dF86F969F82e0D2');
 
-    await bridge.deployed();
+  const bridgeFactory = await ethers.getContractFactory('NENDBridge');
 
-    await nend.setBridge(bridge.address);
+  const bridge = await bridgeFactory.deploy(nend.address, [80001, 4, 7]);
 
-    console.log("Bridge address:", bridge.address);
+  await bridge.deployed();
+
+  await nend.setBridge(bridge.address);
+
+  console.log('Bridge address:', bridge.address);
 }
 
 main()
-    .then(() => process.exit(0))
-    .catch((error) => {
-        console.error(error);
-        process.exit(1);
-    });
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

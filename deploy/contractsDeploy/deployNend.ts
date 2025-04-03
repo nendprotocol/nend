@@ -1,65 +1,66 @@
-import {HardhatRuntimeEnvironment} from 'hardhat/types';
+/* eslint-disable no-unused-vars */
+import { HardhatRuntimeEnvironment } from 'hardhat/types';
 
-import {DeployFunction, Deployment} from 'hardhat-deploy/types';
+import { DeployFunction, Deployment } from 'hardhat-deploy/types';
 
 import retry from '../retry';
 import version from '../version';
+import { ethers } from 'ethers';
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-    const {deployments, getNamedAccounts, getChainId} = hre;
-    const {deploy, execute} = deployments;
-    const {deployer} = await getNamedAccounts();
-    const ChainId = await getChainId();
+  const { deployments, getNamedAccounts, getChainId } = hre;
+  const { deploy, execute } = deployments;
+  const { deployer } = await getNamedAccounts();
+  const ChainId = await getChainId();
 
-    const mainnet = version.mainnet;
-    const turbo = version.turbo;
-    const MainnetSalt = `nend-mainnet-v${version.number}`;
-    const TestnetSalt = `nend-testnet-v${version.number}`;
-    const TurboSalt = `nend-turbo-v${version.number}`;
+  const mainnet = version.mainnet;
+  const turbo = version.turbo;
+  const MainnetSalt = `nend-mainnet-v${version.number}`;
+  const TestnetSalt = `nend-testnet-v${version.number}`;
+  const TurboSalt = `nend-turbo-v${version.number}`;
 
-    let chains;
-    if(ChainId === "31337"){
-      chains = [31337, 31337]; // Local/Hardhat network
-    }else if (ChainId === "5" || ChainId === "80001" || ChainId === "97" || ChainId === "43113") {
-      chains = [80001, 5, 97, 43113]; // Mumbai, Rinkeby, Bnb, Fuji
-    }else if (ChainId === "137" || ChainId === "1" || ChainId === "56" || ChainId === "43114") {
-      chains = [137, 1, 56, 43114]; // poly, eth, bsc, avax
+  let chains;
+  if (ChainId === '31337') {
+    chains = [31337, 31337]; // Local/Hardhat network
+  } else if (ChainId === '5' || ChainId === '80001' || ChainId === '97' || ChainId === '43113') {
+    chains = [80001, 5, 97, 43113]; // Mumbai, Rinkeby, Bnb, Fuji
+  } else if (ChainId === '137' || ChainId === '1' || ChainId === '56' || ChainId === '43114') {
+    chains = [137, 1, 56, 43114]; // poly, eth, bsc, avax
+  }
+
+  while (true) {
+    try {
+      // const NendDeployment = await deploy('NEND', {
+      //   from: deployer,
+      //   contract: 'NEND',
+      //   args: [ChainId === "5" || ChainId === "137" ? true : false, chains],
+      //   log: true,
+      //   deterministicDeployment: mainnet ? ethers.utils.formatBytes32String(`${MainnetSalt}`) : turbo ? ethers.utils.formatBytes32String(`${TurboSalt}`) : ethers.utils.formatBytes32String(`${TestnetSalt}`)
+      // });
+
+      const NendDeployment = await deploy('NEND', {
+        from: deployer,
+        contract: 'NEND',
+        log: true,
+        deterministicDeployment: mainnet ? ethers.utils.formatBytes32String(`${MainnetSalt}`) : turbo ? ethers.utils.formatBytes32String(`${TurboSalt}`) : ethers.utils.formatBytes32String(`${TestnetSalt}`),
+        proxy: {
+          proxyContract: 'UUPS',
+          execute: {
+            // init: {
+            methodName: 'initialize',
+            args: [!!(ChainId === '5' || ChainId === '56'), chains]
+            // },
+          }
+        }
+      });
+      break;
+    } catch (err) {
+      console.log(err);
+      console.log('Transaction failed');
+      await retry();
     }
-    
-    while(true) {
-      try {
-        // const NendDeployment = await deploy('NEND', {
-        //   from: deployer,
-        //   contract: 'NEND',
-        //   args: [ChainId === "5" || ChainId === "137" ? true : false, chains],
-        //   log: true,
-        //   deterministicDeployment: mainnet ? ethers.utils.formatBytes32String(`${MainnetSalt}`) : turbo ? ethers.utils.formatBytes32String(`${TurboSalt}`) : ethers.utils.formatBytes32String(`${TestnetSalt}`)
-        // });
-
-        const NendDeployment = await deploy('NEND', {
-          from: deployer,
-          contract: 'NEND',
-          log: true,
-          deterministicDeployment: mainnet ? ethers.utils.formatBytes32String(`${MainnetSalt}`) : turbo ? ethers.utils.formatBytes32String(`${TurboSalt}`) : ethers.utils.formatBytes32String(`${TestnetSalt}`),
-          proxy: {
-            proxyContract: 'UUPS',
-            execute: {
-                // init: {              
-                  methodName: 'initialize',
-                  args: [ChainId === "5" || ChainId === "56" ? true : false, chains],
-                // },
-            },
-          },
-        });
-        break;
-      }catch(err) {
-        console.log(err);
-        console.log('Transaction failed');
-        await retry();
-      }
-    }
-}
+  }
+};
 
 export default func;
-func.tags = [ 'NendDeployment' ];
-
+func.tags = ['NendDeployment'];
