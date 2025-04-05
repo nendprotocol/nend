@@ -45,7 +45,9 @@ contract LendingPoolStakingV2 is
     mapping(uint256 => Stake) public stakes;
     uint256 public nextStakeId = 1;
     mapping(uint256 => bool) public isActiveStake;
-    uint256[] public activeStakeIds;
+    mapping(uint256 => uint256) public activeStakeIndices; // stakeId => index
+    mapping(uint256 => uint256) public activeStakesById; // index => stakeId
+    uint256 public activeStakesCount;
 
     // Flag to track if migration has happened
     bool public migrationCompleted;
@@ -67,7 +69,10 @@ contract LendingPoolStakingV2 is
             // Track active stakes
             if (oldStake.stakeStatus == StakeStatus.STAKED) {
                 isActiveStake[stakeId] = true;
-                activeStakeIds.push(stakeId);
+                // Add to active stakes tracking
+                activeStakesById[activeStakesCount] = stakeId;
+                activeStakeIndices[stakeId] = activeStakesCount;
+                activeStakesCount++;
             }
         }
 
@@ -171,7 +176,9 @@ contract LendingPoolStakingV2 is
 
         // Track active stake
         isActiveStake[stakeId] = true;
-        activeStakeIds.push(stakeId);
+        activeStakesById[activeStakesCount] = stakeId;
+        activeStakeIndices[stakeId] = activeStakesCount;
+        activeStakesCount++;
 
         totalStakedByToken_Duration[_token][_durationId] += _amount;
         ongoingStakeCount++;
@@ -202,7 +209,9 @@ contract LendingPoolStakingV2 is
         // Mark as active
         if (!isActiveStake[_stakeId]) {
             isActiveStake[_stakeId] = true;
-            activeStakeIds.push(_stakeId);
+            activeStakesById[activeStakesCount] = _stakeId;
+            activeStakeIndices[_stakeId] = activeStakesCount;
+            activeStakesCount++;
         }
 
         emit StakeStatusChanged(_stakeId, _stake.stakeStatus);
@@ -241,7 +250,9 @@ contract LendingPoolStakingV2 is
 
             // Mark stake as active and add to active IDs
             isActiveStake[lastEscrowId] = true;
-            activeStakeIds.push(lastEscrowId);
+            activeStakesById[activeStakesCount] = lastEscrowId;
+            activeStakeIndices[lastEscrowId] = activeStakesCount;
+            activeStakesCount++;
 
             userToStakeTokenToLastEscrowId[_stake.staker][
                 _stake.isEscrow ? nend : _stake.token
@@ -302,18 +313,23 @@ contract LendingPoolStakingV2 is
         uint256 _rolledOverInflationReward = _inflationReward + poolRollOver;
         poolRollOver = 0;
 
-        // 1. First optimize the main processing loop with gas-saving techniques
-        for (uint256 i = 0; i < activeStakeIds.length; ) {
-            uint256 stakeId = activeStakeIds[i];
-            // Skip inactive stakes with minimal gas usage
-            if (isActiveStake[stakeId]) {
-                Stake storage _stake = stakes[stakeId];
-                if (_stake.stakeStatus == StakeStatus.STAKED) {
-                    _compoundEscrow(stakeId, _rolledOverInflationReward);
-                }
+        uint256 initialActiveCount = activeStakesCount;
+
+        for (uint256 i = 0; i < initialActiveCount; i++) {
+            uint256 stakeId = activeStakesById[i];
+            if (!isActiveStake[stakeId]) continue;
+
+            Stake storage _stake = stakes[stakeId];
+            if (_stake.stakeStatus != StakeStatus.STAKED) {
+                continue;
             }
-            // Unchecked increment saves gas
-            unchecked { ++i; }
+
+            _compoundEscrow(stakeId, _rolledOverInflationReward);
+        }
+
+        // Process any new stakes created during distribution
+        for (uint256 i = initialActiveCount; i < activeStakesCount; i++) {
+            _emitStaked(activeStakesById[i]);
         }
 
         for (uint256 i = 0; i < stakeTokens.length; i++) {
@@ -359,8 +375,8 @@ contract LendingPoolStakingV2 is
             );
         }
 
-        for (uint256 i = 0; i < activeStakeIds.length; i++) {
-            uint256 stakeId = activeStakeIds[i];
+        for (uint256 i = 0; i < activeStakesCount; i++) {
+            uint256 stakeId = activeStakesById[i];
             if (!isActiveStake[stakeId]) continue;
 
             Stake storage _stake = stakes[stakeId];
@@ -488,9 +504,27 @@ contract LendingPoolStakingV2 is
             emit EscrowStatusChanged(_stakeId, EscrowStatus.CLAIMED);
         }
 
-        // Mark stake as inactive
+        // Mark stake as inactive with O(1) removal
         if (isActiveStake[_stakeId]) {
             isActiveStake[_stakeId] = false;
+            
+            // Get index of stake to remove
+            uint256 indexToRemove = activeStakeIndices[_stakeId];
+            
+            // Only perform swap if this isn't already the last item
+            if (indexToRemove < activeStakesCount - 1) {
+                // Get ID of the last active stake
+                uint256 lastStakeId = activeStakesById[activeStakesCount - 1];
+                
+                // Move last item to the removed position
+                activeStakesById[indexToRemove] = lastStakeId;
+                activeStakeIndices[lastStakeId] = indexToRemove;
+            }
+            
+            // Reduce count and clean up
+            activeStakesCount--;
+            delete activeStakesById[activeStakesCount];
+            delete activeStakeIndices[_stakeId];
         }
 
         delete stakes[_stakeId];
