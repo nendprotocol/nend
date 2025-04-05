@@ -54,6 +54,25 @@ contract LendingPoolStakingV2 is
 
     // Add event for monitoring
     event StakeMigrationCompleted(uint256 stakedMigrated);
+    // Add a new event to track clearing
+    event OldStakesCleared(uint256 clearedStakes);
+
+    function resetActiveStakeIds(uint256 _activeIdCount) external onlyOwner {
+        require(nextStakeId == 1, "No stakes to reset");
+
+        // Reset counters first
+        activeStakesCount = 0;
+
+        // Correctly rebuild the active stakes tracking
+        for (uint256 i = 1; i <= _activeIdCount; i++) {
+            if (!isActiveStake[i]) continue;
+
+            // Add to active stakes in order
+            activeStakesById[activeStakesCount] = i;
+            activeStakeIndices[i] = activeStakesCount;
+            activeStakesCount++;
+        }
+    }
 
     function migrateStakesToMapping() external onlyOwner {
         require(!migrationCompleted, "Migration already performed");
@@ -222,8 +241,9 @@ contract LendingPoolStakingV2 is
         uint256 _inflationReward
     ) internal virtual {
         Stake storage _stake = stakes[_stakeId];
+        address tokenAddress = _stake.isEscrow ? nend : _stake.token;
         uint256 lastEscrowId = userToStakeTokenToLastEscrowId[_stake.staker][
-            _stake.isEscrow ? nend : _stake.token
+            tokenAddress
         ];
         if (
             lastEscrowId == 0 ||
@@ -236,7 +256,7 @@ contract LendingPoolStakingV2 is
 
             stakes[lastEscrowId] = Stake(
                 _stake.staker,
-                _stake.isEscrow ? nend : _stake.token,
+                tokenAddress,
                 uint48(block.timestamp),
                 uint48(block.timestamp) +
                     escrowLockPeriod /
@@ -255,7 +275,7 @@ contract LendingPoolStakingV2 is
             activeStakesCount++;
 
             userToStakeTokenToLastEscrowId[_stake.staker][
-                _stake.isEscrow ? nend : _stake.token
+                tokenAddress
             ] = lastEscrowId;
 
             // Emit event right when the stake is created
@@ -266,15 +286,17 @@ contract LendingPoolStakingV2 is
 
         for (uint8 i = 0; i < 3; ) {
             uint256 _reward = _calculateReward(
-                _stake.isEscrow ? nend : _stake.token,
+                tokenAddress,
                 i,
                 _stake.amountsPerDuration[i],
                 _inflationReward /
                     stakeTokenCount +
-                    inflationRollOver[_stake.isEscrow ? nend : _stake.token]
+                    inflationRollOver[tokenAddress]
             );
             _escrow.amountsPerDuration[i] += _reward;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
     }
 
@@ -284,7 +306,7 @@ contract LendingPoolStakingV2 is
     ) internal virtual {
         Stake storage _stake = stakes[_stakeId];
 
-        for (uint8 i = 0; i < 3; i++) {
+        for (uint8 i = 0; i < 3; ) {
             uint256 _reward = _calculateReward(
                 _stake.isEscrow ? nend : _stake.token,
                 i,
@@ -298,6 +320,9 @@ contract LendingPoolStakingV2 is
                 _stake.isEscrow ? nend : _stake.token,
                 _reward
             );
+            unchecked {
+                ++i;
+            }
         }
     }
 
@@ -315,21 +340,18 @@ contract LendingPoolStakingV2 is
 
         uint256 initialActiveCount = activeStakesCount;
 
-        for (uint256 i = 0; i < initialActiveCount; i++) {
+        for (uint256 i = 0; i < initialActiveCount; ) {
             uint256 stakeId = activeStakesById[i];
-            if (!isActiveStake[stakeId]) continue;
-
-            Stake storage _stake = stakes[stakeId];
-            if (_stake.stakeStatus != StakeStatus.STAKED) {
-                continue;
+            // Combined condition check to save on branching
+            if (
+                isActiveStake[stakeId] &&
+                stakes[stakeId].stakeStatus == StakeStatus.STAKED
+            ) {
+                _compoundEscrow(stakeId, _rolledOverInflationReward);
             }
-
-            _compoundEscrow(stakeId, _rolledOverInflationReward);
-        }
-
-        // Process any new stakes created during distribution
-        for (uint256 i = initialActiveCount; i < activeStakesCount; i++) {
-            _emitStaked(activeStakesById[i]);
+            unchecked {
+                ++i;
+            }
         }
 
         for (uint256 i = 0; i < stakeTokens.length; i++) {
@@ -463,9 +485,13 @@ contract LendingPoolStakingV2 is
         }
 
         // Transfer original staked amount
-        uint256 _stakedAmount = _stake.amountsPerDuration[0] +
-            _stake.amountsPerDuration[1] +
-            _stake.amountsPerDuration[2];
+        uint256 _stakedAmount;
+        unchecked {
+            _stakedAmount =
+                _stake.amountsPerDuration[0] +
+                _stake.amountsPerDuration[1] +
+                _stake.amountsPerDuration[2];
+        }
 
         if (_stake.isEscrow) {
             IERC20(nend).transfer(msg.sender, _stakedAmount);
@@ -504,26 +530,27 @@ contract LendingPoolStakingV2 is
             emit EscrowStatusChanged(_stakeId, EscrowStatus.CLAIMED);
         }
 
-        // Mark stake as inactive with O(1) removal
+        // O(1) removal process: swap the element to remove with the last element and then remove the last
         if (isActiveStake[_stakeId]) {
             isActiveStake[_stakeId] = false;
-            
-            // Get index of stake to remove
+
             uint256 indexToRemove = activeStakeIndices[_stakeId];
-            
-            // Only perform swap if this isn't already the last item
+
+            // Only perform swap if not the last item
             if (indexToRemove < activeStakesCount - 1) {
-                // Get ID of the last active stake
+                // Get last stake ID
                 uint256 lastStakeId = activeStakesById[activeStakesCount - 1];
-                
+
                 // Move last item to the removed position
                 activeStakesById[indexToRemove] = lastStakeId;
                 activeStakeIndices[lastStakeId] = indexToRemove;
             }
-            
-            // Reduce count and clean up
-            activeStakesCount--;
-            delete activeStakesById[activeStakesCount];
+
+            // Clean up and reduce count
+            if (activeStakesCount > 0) {
+                activeStakesCount--;
+                delete activeStakesById[activeStakesCount];
+            }
             delete activeStakeIndices[_stakeId];
         }
 
@@ -622,4 +649,24 @@ contract LendingPoolStakingV2 is
     }
 
     function _authorizeUpgrade(address) internal virtual override onlyOwner {}
+
+    /**
+     * @notice Clears the old stakes array to free up storage after migration
+     * @dev Can only be called after migration is complete
+     */
+    function clearOldStakesStorage() external onlyOwner {
+        require(migrationCompleted, "Migration must be completed first");
+
+        // Get current length of old stakes array
+        uint256 length = _oldStakes.length;
+
+        // Clear the array by setting its length to 0
+        // This is the proper way to clear a storage array in Solidity
+        assembly {
+            // Store array length (0) at the array's storage slot
+            sstore(_oldStakes.slot, 0)
+        }
+
+        emit OldStakesCleared(length);
+    }
 }
