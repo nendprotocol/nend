@@ -42,7 +42,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         }
     };
 
-    if (ChainId === '5' || ChainId === '80001') {
+    if (ChainId === '5' || ChainId === '80001' || ChainId === '80002') {
         if (VaultProxyIfpDeployment.newlyDeployed === undefined ) {  
 
             while(true) {

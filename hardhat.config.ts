@@ -39,6 +39,7 @@ const FUJI_NODE_RPC_URL = 'https://fuji.nendfi.com/';
 const ETH_NODE_RPC_URL = `https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
 const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
 const AVX_NODE_RPC_URL = 'https://api.avax.network/ext/bc/C/rpc';
+const AMOY_NODE_RPC_URL = 'https://rpc-amoy.polygon.technology';
 // const POLY_NODE_RPC_URL = 'https://polygon-rpc.com';
 const POLY_NODE_RPC_URL = 'https://rpc.ankr.com/polygon';
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
@@ -272,6 +273,13 @@ const config: HardhatUserConfig = {
       saveDeployments: true,
       tags: ['stage'],
       url: `${MUMBAI_NODE_RPC_URL}`,
+      accounts: [`${TESTNET_WALLET_PRIVATE_KEY}`]
+    },
+    amoy: {
+      live: true,
+      saveDeployments: true,
+      tags: ['stage'],
+      url: `${AMOY_NODE_RPC_URL}`,
       accounts: [`${TESTNET_WALLET_PRIVATE_KEY}`]
     },
     fuji: {

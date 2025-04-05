@@ -25,7 +25,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const LiquidityPoolStakingDeployment : DeploymentExt = await deployments.get('LiquidityPoolStaking');
     const VaultEcosystemFundDeployment : DeploymentExt = await deployments.get('VaultEcosystemFund');
 
-    if (ChainId === '5' || ChainId === '80001' || ChainId === "31337") {
+    if (ChainId === '5' || ChainId === '80001' || ChainId === '80002' || ChainId === "31337") {
       if(NendDeployment.newlyDeployed === undefined || LiquidityPoolStakingDeployment.newlyDeployed === undefined ) {
 
           while(true) {

@@ -26,7 +26,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const VaultProxyTcDeployment : DeploymentExt = await deployments.get('VaultProxyTc');
     const VaultProxyIflDeployment : DeploymentExt = await deployments.get('VaultProxyIfl');
 
-    if (ChainId === '5' || ChainId === '80001' || ChainId === "31337") {
+    if (ChainId === '5' || ChainId === '80001' || ChainId === '80002' || ChainId === "31337") {
         if (VaultLendingPoolDeployment.newlyDeployed === undefined || VaultProxyIfpDeployment.newlyDeployed === undefined ) {  
 
             while(true) {

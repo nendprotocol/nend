@@ -22,8 +22,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   let chains;
   if (ChainId === '31337') {
     chains = [31337, 31337]; // Local/Hardhat network
-  } else if (ChainId === '5' || ChainId === '80001' || ChainId === '97' || ChainId === '43113') {
-    chains = [80001, 5, 97, 43113]; // Mumbai, Rinkeby, Bnb, Fuji
+  } else if (ChainId === '5' || ChainId === '80001' || ChainId === '97' || ChainId === '43113' || ChainId === '80002') {
+    chains = [80001, 80002, 5, 97, 43113]; // Mumbai, Amoy, Rinkeby, Bnb, Fuji
   } else if (ChainId === '137' || ChainId === '1' || ChainId === '56' || ChainId === '43114') {
     chains = [137, 1, 56, 43114]; // poly, eth, bsc, avax
   }

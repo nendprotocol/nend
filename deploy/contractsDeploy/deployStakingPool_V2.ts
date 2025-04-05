@@ -45,6 +45,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         });
 
         // Add after successful deployment
+        // This is for the migration from V1 to V2
         if (StakingDeployment.newlyDeployed) {
           console.log('Migrating stake data from array to mapping...');
           await execute(

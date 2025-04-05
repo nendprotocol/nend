@@ -4,7 +4,11 @@ import version from '../version';
 import retry from '../retry';
 const { ethers } = require('hardhat');
 
-// This is for replacing the old Staking contract with the new one for Polygon Woner loss.
+// ******************************* IMPORTANT NOTE ************************************* //
+// This is for replacing the old Staking contract with the new one for Polygon the Woner loss.
+// The new contract is called StakingPool and it is an UUPS proxy.
+// The old contract is called Staking and it is not used any more on Polygon.
+// ************************************************************************************ //
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, getNamedAccounts, getChainId } = hre;
   const { deploy, execute } = deployments;

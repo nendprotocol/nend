@@ -47,7 +47,6 @@ contract LendingPoolStakingV2 is
     mapping(uint256 => bool) public isActiveStake;
     uint256[] public activeStakeIds;
 
-
     // Flag to track if migration has happened
     bool public migrationCompleted;
 
@@ -223,10 +222,10 @@ contract LendingPoolStakingV2 is
         ) {
             uint256[3] memory _amounts;
 
-            uint256 newEscrowId = nextStakeId;
+            lastEscrowId = nextStakeId;
             nextStakeId++;
 
-            stakes[newEscrowId] = Stake(
+            stakes[lastEscrowId] = Stake(
                 _stake.staker,
                 _stake.isEscrow ? nend : _stake.token,
                 uint48(block.timestamp),
@@ -240,14 +239,21 @@ contract LendingPoolStakingV2 is
                 StakeStatus.DEFAULT
             );
 
-            lastEscrowId = userToStakeTokenToLastEscrowId[_stake.staker][
+            // Mark stake as active and add to active IDs
+            isActiveStake[lastEscrowId] = true;
+            activeStakeIds.push(lastEscrowId);
+
+            userToStakeTokenToLastEscrowId[_stake.staker][
                 _stake.isEscrow ? nend : _stake.token
-            ] = newEscrowId;
+            ] = lastEscrowId;
+
+            // Emit event right when the stake is created
+            _emitStaked(lastEscrowId);
         }
 
         Stake storage _escrow = stakes[lastEscrowId];
 
-        for (uint8 i = 0; i < 3; i++) {
+        for (uint8 i = 0; i < 3; ) {
             uint256 _reward = _calculateReward(
                 _stake.isEscrow ? nend : _stake.token,
                 i,
@@ -257,6 +263,7 @@ contract LendingPoolStakingV2 is
                     inflationRollOver[_stake.isEscrow ? nend : _stake.token]
             );
             _escrow.amountsPerDuration[i] += _reward;
+            unchecked { ++i; }
         }
     }
 
@@ -295,24 +302,18 @@ contract LendingPoolStakingV2 is
         uint256 _rolledOverInflationReward = _inflationReward + poolRollOver;
         poolRollOver = 0;
 
-        uint256 currentActiveCount = activeStakeIds.length;
-        uint256 newStakesStartIdx = currentActiveCount;
-
-        for (uint256 i = 0; i < currentActiveCount; i++) {
+        // 1. First optimize the main processing loop with gas-saving techniques
+        for (uint256 i = 0; i < activeStakeIds.length; ) {
             uint256 stakeId = activeStakeIds[i];
-            if (!isActiveStake[stakeId]) continue;
-
-            Stake storage _stake = stakes[stakeId];
-            if (_stake.stakeStatus != StakeStatus.STAKED) {
-                continue;
+            // Skip inactive stakes with minimal gas usage
+            if (isActiveStake[stakeId]) {
+                Stake storage _stake = stakes[stakeId];
+                if (_stake.stakeStatus == StakeStatus.STAKED) {
+                    _compoundEscrow(stakeId, _rolledOverInflationReward);
+                }
             }
-
-            _compoundEscrow(stakeId, _rolledOverInflationReward);
-        }
-
-        // Process any new stakes created during distribution
-        for (uint256 i = newStakesStartIdx; i < activeStakeIds.length; i++) {
-            _emitStaked(activeStakeIds[i]);
+            // Unchecked increment saves gas
+            unchecked { ++i; }
         }
 
         for (uint256 i = 0; i < stakeTokens.length; i++) {
