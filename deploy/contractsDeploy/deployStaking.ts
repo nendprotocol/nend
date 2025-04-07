@@ -43,30 +43,35 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   try {
     const NendDeployment : DeploymentExt = await deployments.get('NEND');
     const VaultLendingPoolDeployment : DeploymentExt = await deployments.get('VaultLendingPool');
+    const StakingDeployment : DeploymentExt | null = await deployments.getOrNull(contractName);
 
     console.log(`Found NEND at: ${NendDeployment.address}`);
     console.log(`Found VaultLendingPool at: ${VaultLendingPoolDeployment.address}`);
+    console.log(`Found Staking at: ${StakingDeployment ? StakingDeployment.address : 'not deployed'}`);
 
-    const cleanDeployConfirmed = await promptUser(
-      'Would you like to delete old deployment record? (yes/no): '
-    );
+    let cleanDeployConfirmed;
+    if (StakingDeployment) {
+      cleanDeployConfirmed = await promptUser(
+        'Would you like to delete old deployment record? (yes/no): '
+      );
 
-    if ((cleanDeployConfirmed as string).toLowerCase() === 'yes') {
-      // Delete the old deployment record if it exists (this is key)
-      try {
-        await deployments.delete(contractName);
-        console.log(`Deleted old deployment record for ${contractName}`);
-      } catch (e) {
-        console.log(`No existing deployment found for ${contractName} to delete`);
+      if ((cleanDeployConfirmed as string).toLowerCase() === 'yes') {
+        // Delete the old deployment record if it exists (this is key)
+        try {
+          await deployments.delete(contractName);
+          console.log(`Deleted old deployment record for ${contractName}`);
+        } catch (e) {
+          console.log(`No existing deployment found for ${contractName} to delete`);
+        }
+
+        // Deploy completely fresh implementation and proxy
+        console.log('Deploying new implementation and proxy from scratch...');
       }
-
-      // Deploy completely fresh implementation and proxy
-      console.log('Deploying new implementation and proxy from scratch...');
     }
 
     while (true) {
       try {
-        if ((cleanDeployConfirmed as string).toLowerCase() === 'yes') {
+        if (cleanDeployConfirmed && (cleanDeployConfirmed as string).toLowerCase() === 'yes') {
           // STEP 1: Deploy implementation contract separately
           console.log('Deploying implementation contract...');
           const implDeployment = await deploy(`${contractName}_Implementation`, {

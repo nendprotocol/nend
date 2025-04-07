@@ -20,25 +20,28 @@ contract LendingPoolStakingV2 is
     address public nend;
     Vault public lendingPool;
     mapping(address => bool) public activeStakeTokens;
+    // Inflation roll-over pool for each token
     mapping(address => uint256) public inflationRollOver;
     address[] public stakeTokens;
     uint48 public escrowLockPeriod;
     // Active stake token count
     uint256 public stakeTokenCount;
     // Active stake count only for stakeStaus == STAKED
-    uint256 public ongoingStakeCount;
+    uint256 public activeStakesCount;
     mapping(address => uint256) internal ifpTokenToAmount;
     // User address to this week's escrowed reward stake id
     mapping(address => mapping(address => uint256)) userToStakeTokenToLastEscrowId;
+    // This week's escrowed inflation reward by duration and token
     mapping(address => mapping(uint8 => uint256))
         public lastEscrowRewardByToken_Duration;
     // Old storage (keep for backward compatibility)
     Stake[] private _oldStakes;
     uint48[3] public stakeDurations;
-    // Token address => duration id => amount
+    // Total staked amount per token and per duration. Token address => duration id => amount
     mapping(address => mapping(uint8 => uint256))
         public totalStakedByToken_Duration;
     uint8[3] public rewardAllocations;
+    // Inflation roll-over pool for the network
     uint256 public poolRollOver;
 
     // New storage
@@ -48,7 +51,7 @@ contract LendingPoolStakingV2 is
     mapping(uint256 => uint256) public activeStakeIndices; // stakeId => index
     mapping(uint256 => uint256) public activeStakesById; // index => stakeId
     // all active stake IDs count
-    uint256 public activeStakesCount;
+    // uint256 public activeStakesCount;
 
     // Flag to track if migration has happened
     // bool public migrationCompleted;
@@ -84,95 +87,145 @@ contract LendingPoolStakingV2 is
         activeStakesCount = 0;
 
         // Correctly rebuild the active stakes tracking
-        for (uint256 i = 1; i <= _activeIdCount; i++) {
-            if (!isActiveStake[i]) continue;
-
-            // Add to active stakes in order
-            activeStakesById[activeStakesCount] = i;
-            activeStakeIndices[i] = activeStakesCount;
-            activeStakesCount++;
+        for (uint256 i = 1; i <= _activeIdCount; ) {
+            if (i == _activeIdCount) {
+                // set last element as nextStakeId
+                nextStakeId = i + 1;
+                break;
+            }
+            
+            // Only process active stakes, but ALWAYS increment counter
+            if (isActiveStake[i]) {
+                // Add to active stakes in order
+                activeStakesById[activeStakesCount] = i;
+                activeStakeIndices[i] = activeStakesCount;
+                
+                unchecked {
+                    ++activeStakesCount;
+                }
+            }
+            
+            // Always increment i regardless of stake active status
+            unchecked {
+                ++i;
+            }
         }
     }
 
-    function migrateStakeTokenToNend(
-        address _token
-    ) external onlyOwner {
-        require(_token != nend, "Cannot migrate to the same token");
+    // function migrateStakeTokenToNend(address _token) external onlyOwner {
+    //     require(_token != nend, "Cannot migrate to the same token");
 
-        totalStakedByToken_Duration[nend][0] += totalStakedByToken_Duration[_token][0];
-        totalStakedByToken_Duration[nend][1] += totalStakedByToken_Duration[_token][1];
-        totalStakedByToken_Duration[nend][2] += totalStakedByToken_Duration[_token][2];
+    //     totalStakedByToken_Duration[nend][0] += totalStakedByToken_Duration[
+    //         _token
+    //     ][0];
+    //     totalStakedByToken_Duration[nend][1] += totalStakedByToken_Duration[
+    //         _token
+    //     ][1];
+    //     totalStakedByToken_Duration[nend][2] += totalStakedByToken_Duration[
+    //         _token
+    //     ][2];
 
-        // empty the old token's data
-        totalStakedByToken_Duration[_token][0] = 0;
-        totalStakedByToken_Duration[_token][1] = 0;
-        totalStakedByToken_Duration[_token][2] = 0;
+    //     // empty the old token's data
+    //     totalStakedByToken_Duration[_token][0] = 0;
+    //     totalStakedByToken_Duration[_token][1] = 0;
+    //     totalStakedByToken_Duration[_token][2] = 0;
+    // }
+
+    /**
+     * @notice Import multiple stakes at once into the mapping storage
+     * @dev Gas-optimized import function with support for custom stake IDs
+     * @param _stakesToImport Array of Stake structs to import
+     * @param _stakeIds Optional array of specific IDs to use (must match _stakesToImport.length)
+     */
+    function importStakes(
+        Stake[] calldata _stakesToImport,
+        uint256[] calldata _stakeIds
+    ) external onlyOwner  {
+        uint256 length = _stakesToImport.length;
+
+        // Early return for empty array
+        if (length == 0) return;
+
+        uint256 currentActiveCount = activeStakesCount;
+        uint256 addedActiveCount = 0;
+        uint256 highestIdUsed = 0;
+
+        for (uint256 i = 0; i < length;) {
+            // Use custom ID if provided, otherwise use sequential ID
+            uint256 stakeId = _stakeIds[i];
+
+            // Track highest ID for nextStakeId update
+            if (stakeId > highestIdUsed) {
+                highestIdUsed = stakeId;
+            }
+
+            Stake calldata stake = _stakesToImport[i]; // Cache the current stake
+
+            // Store in mapping
+            stakes[stakeId] = stake;
+
+            // Track active stakes
+            if (stake.stakeStatus == StakeStatus.STAKED) {
+                isActiveStake[stakeId] = true;
+
+                // Add to active stakes tracking
+                activeStakesById[currentActiveCount] = stakeId;
+                activeStakeIndices[stakeId] = currentActiveCount;
+
+                // Update duration totals - unroll the loop for efficiency
+                totalStakedByToken_Duration[stake.token][0] += stake.amountsPerDuration[0];
+                totalStakedByToken_Duration[stake.token][1] += stake.amountsPerDuration[1];
+                totalStakedByToken_Duration[stake.token][2] += stake.amountsPerDuration[2];
+
+                unchecked {
+                    ++currentActiveCount;
+                    ++addedActiveCount;
+                }
+            }
+
+            // Emit staking event
+            _emitStaked(stakeId);
+
+            unchecked { ++i; }
+        }
+
+        // Update nextStakeId to be after the highest ID used
+        nextStakeId = highestIdUsed + 1;
+
+        activeStakesCount = currentActiveCount;
     }
 
-    // /**
-    //  * @notice Import multiple stakes at once into the mapping storage
-    //  * @dev Gas-optimized import function with support for custom stake IDs
-    //  * @param _stakesToImport Array of Stake structs to import
-    //  * @param _stakeIds Optional array of specific IDs to use (must match _stakesToImport.length)
-    //  */
-    // function importStakes(
-    //     Stake[] calldata _stakesToImport,
-    //     uint256[] calldata _stakeIds
-    // ) external onlyOwner  {
-    //     uint256 length = _stakesToImport.length;
-        
-    //     // Early return for empty array
-    //     if (length == 0) return;
-        
-    //     uint256 currentActiveCount = activeStakesCount;
-    //     uint256 addedActiveCount = 0;
-    //     uint256 highestIdUsed = 0;
-        
-    //     for (uint256 i = 0; i < length;) {
-    //         // Use custom ID if provided, otherwise use sequential ID
-    //         uint256 stakeId = _stakeIds[i];
-            
-    //         // Track highest ID for nextStakeId update
-    //         if (stakeId > highestIdUsed) {
-    //             highestIdUsed = stakeId;
-    //         }
-            
-    //         Stake calldata stake = _stakesToImport[i]; // Cache the current stake
-            
-    //         // Store in mapping
-    //         stakes[stakeId] = stake;
-            
-    //         // Track active stakes
-    //         if (stake.stakeStatus == StakeStatus.STAKED) {
-    //             isActiveStake[stakeId] = true;
-                
-    //             // Add to active stakes tracking
-    //             activeStakesById[currentActiveCount] = stakeId;
-    //             activeStakeIndices[stakeId] = currentActiveCount;
-                
-    //             // Update duration totals - unroll the loop for efficiency
-    //             totalStakedByToken_Duration[stake.token][0] += stake.amountsPerDuration[0];
-    //             totalStakedByToken_Duration[stake.token][1] += stake.amountsPerDuration[1];
-    //             totalStakedByToken_Duration[stake.token][2] += stake.amountsPerDuration[2];
-                
-    //             unchecked {
-    //                 ++currentActiveCount;
-    //                 ++ongoingStakeCount;
-    //                 ++addedActiveCount;
-    //             }
-    //         }
-            
-    //         // Emit staking event
-    //         _emitStaked(stakeId);
+    function setlastEscrowRewards(
+        uint256 _inflationReward
+    ) external virtual onlyOwner {
 
-    //         unchecked { ++i; }
-    //     }
-        
-    //     // Update nextStakeId to be after the highest ID used
-    //     nextStakeId = highestIdUsed + 1;
+        uint256 _rolledOverInflationReward = _inflationReward + poolRollOver;
+        poolRollOver = 0;
 
-    //     activeStakesCount = currentActiveCount;
-    // }
+        for (uint256 i = 0; i < stakeTokens.length; i++) {
+            address tokenAddr = stakeTokens[i];
+            uint256 poolReward = (_rolledOverInflationReward /
+                stakeTokenCount) + inflationRollOver[tokenAddr];
+            inflationRollOver[tokenAddr] = 0;
+            uint8 predefinedRollOverCount = 0;
+            for (uint8 j = 0; j < 3; j++) {
+                uint256 predefinedDurationReward = (poolReward *
+                    rewardAllocations[j]) / 100;
+                if (totalStakedByToken_Duration[tokenAddr][j] == 0) {
+                    inflationRollOver[tokenAddr] += predefinedDurationReward;
+                    predefinedRollOverCount++;
+                }
+                lastEscrowRewardByToken_Duration[tokenAddr][
+                    j
+                ] = predefinedDurationReward;
+            }
+            // Reward for all durations was rolled over => Pool rollover
+            if (predefinedRollOverCount == 3) {
+                inflationRollOver[tokenAddr] = 0;
+                poolRollOver += _inflationReward / stakeTokenCount;
+            }
+        }
+    }
 
     // function migrateStakesToMapping() external onlyOwner {
     //     // require(!migrationCompleted, "Migration already performed");
@@ -197,9 +250,9 @@ contract LendingPoolStakingV2 is
 
     //     // Set the next ID to be after all existing stakes
     //     nextStakeId = oldStakesLength + 1;
-    //     migrationCompleted = true;
+    //     // migrationCompleted = true;
 
-    //     emit StakeMigrationCompleted(oldStakesLength);
+    //     // emit StakeMigrationCompleted(oldStakesLength);
     // }
 
     function setRewardAllocations(
@@ -304,7 +357,7 @@ contract LendingPoolStakingV2 is
         activeStakesCount++;
 
         totalStakedByToken_Duration[_token][_durationId] += _amount;
-        ongoingStakeCount++;
+        // ongoingStakeCount++;
 
         _emitStaked(stakeId);
     }
@@ -321,7 +374,7 @@ contract LendingPoolStakingV2 is
         }
 
         _stake.stakeStatus = StakeStatus.STAKED;
-        ongoingStakeCount++;
+        // ongoingStakeCount++;
 
         for (uint8 i = 0; i < 3; i++) {
             totalStakedByToken_Duration[nend][i] += _stake.amountsPerDuration[
@@ -355,10 +408,10 @@ contract LendingPoolStakingV2 is
         ) {
             uint256[3] memory _amounts;
 
-            lastEscrowId = nextStakeId;
+            uint256 newEscrowId = nextStakeId;
             nextStakeId++;
 
-            stakes[lastEscrowId] = Stake(
+            stakes[newEscrowId] = Stake(
                 _stake.staker,
                 tokenAddress,
                 uint48(block.timestamp),
@@ -373,17 +426,17 @@ contract LendingPoolStakingV2 is
             );
 
             // Mark stake as active and add to active IDs
-            isActiveStake[lastEscrowId] = true;
-            activeStakesById[activeStakesCount] = lastEscrowId;
-            activeStakeIndices[lastEscrowId] = activeStakesCount;
-            activeStakesCount++;
+            // isActiveStake[newEscrowId] = true;
+            // activeStakesById[activeStakesCount] = newEscrowId;
+            // activeStakeIndices[newEscrowId] = activeStakesCount;
+            // activeStakesCount++;
 
-            userToStakeTokenToLastEscrowId[_stake.staker][
+            lastEscrowId = userToStakeTokenToLastEscrowId[_stake.staker][
                 tokenAddress
-            ] = lastEscrowId;
+            ] = newEscrowId;
 
             // Emit event right when the stake is created
-            _emitStaked(lastEscrowId);
+            // _emitStaked(lastEscrowId);
         }
 
         Stake storage _escrow = stakes[lastEscrowId];
@@ -460,9 +513,8 @@ contract LendingPoolStakingV2 is
 
         for (uint256 i = 0; i < stakeTokens.length; i++) {
             address tokenAddr = stakeTokens[i];
-            uint256 poolReward = _rolledOverInflationReward /
-                stakeTokenCount +
-                inflationRollOver[tokenAddr];
+            uint256 poolReward = (_rolledOverInflationReward /
+                stakeTokenCount) + inflationRollOver[tokenAddr];
             inflationRollOver[tokenAddr] = 0;
             uint8 predefinedRollOverCount = 0;
             for (uint8 j = 0; j < 3; j++) {
@@ -612,7 +664,7 @@ contract LendingPoolStakingV2 is
         }
 
         if (_stake.stakeStatus == StakeStatus.STAKED) {
-            ongoingStakeCount--;
+            // ongoingStakeCount--;
 
             for (uint8 i = 0; i < 3; i++) {
                 totalStakedByToken_Duration[
@@ -721,7 +773,7 @@ contract LendingPoolStakingV2 is
         uint256 _reward
     ) internal view virtual returns (uint256) {
         return
-            _amountStaked == 0
+            totalStakedByToken_Duration[_stakeToken][_durationId] == 0
                 ? 0
                 : (_reward * rewardAllocations[_durationId] * _amountStaked) /
                     100 /

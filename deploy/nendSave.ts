@@ -32,18 +32,20 @@ import { CollectionStatsModel } from './models/models';
 import { MoreThan } from 'typeorm';
 
 export async function getLendingPoolStake (chainCode : string) {
-  const chainName = ChainNames[Number(chainCode)].name;
+  let chainName = ChainNames[Number(chainCode)].name;
   console.log('chainName', chainName);
+  if (chainCode === '97') {
+    // const chainName = 'bsc';
+    chainName = ChainNames[Number('56')].name;
+    console.log(`Geting data from ${chainName}`);
+  }
   const repository = AppDataSource.manager.getRepository(LendingPoolStake);
-  const queryResult : any = await repository.find({
-    where: {
-      chain: chainName/* ,
-      start: MoreThan(new Date('2025-03-24 03:37:23')) */
-    },
-    order: {
-      start: 'ASC'
-    }
-  });
+  // Use QueryBuilder with explicit cast to integer for sorting
+  const queryResult: any = await repository
+    .createQueryBuilder('stake')
+    .where('chain = :chainName', { chainName })
+    .orderBy('id::integer', 'ASC')
+    .getMany();
 
   // conver the result to the model
   const result = queryResult.map((item: any) => ({

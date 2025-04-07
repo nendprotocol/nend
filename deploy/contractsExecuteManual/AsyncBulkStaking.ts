@@ -49,6 +49,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
 
     console.log(`Retrieved ${rawStakes.length} stakes from database`);
+    const shouldStart = await promptUser('Are you ready to start? (yes/no): ');
+
+    if (shouldStart.toLowerCase() !== 'yes') {
+      console.log('Import aborted by user');
+      return;
+    }
 
     // Extract original stake IDs from database
     const stakeIds:number[] = [];
@@ -114,7 +120,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
 
     // Execute in batches if there are many stakes
-    const BATCH_SIZE = 10; // Adjust based on gas limits
+    const BATCH_SIZE = 20; // Adjust based on gas limits
     const batches = [];
 
     for (let i = 0; i < formattedStakes.length; i += BATCH_SIZE) {

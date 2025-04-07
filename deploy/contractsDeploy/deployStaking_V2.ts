@@ -50,7 +50,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     try {
       existingProxy = await deployments.get(contractName);
       console.log(`Found existing proxy at ${existingProxy.address}`);
-      const shouldUpgrade = await promptUser('Would you like to migrate stakes to mapping? (yes/no): ');
+      const shouldUpgrade = await promptUser('Would you like to upgrade "Staking" contract? (yes/no): ');
       if (shouldUpgrade.toLowerCase() !== 'yes') {
         console.log('Upgrade skipped.');
         return;
