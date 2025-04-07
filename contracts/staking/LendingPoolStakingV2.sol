@@ -5,16 +5,16 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
 import "../vault/Vault.sol";
 import "./interfaces/ILendingPoolStaking.sol";
-import "../test/Testing.sol";
-import "../access/SimpleRoleAccess.sol";
+import "../test/TestingV2.sol";
+import "../access/SimpleRoleAccessV2.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract LendingPoolStakingV2 is
     ILendingPoolStaking,
     ERC721URIStorageUpgradeable,
-    Testing,
-    SimpleRoleAccess,
+    TestingV2,
+    SimpleRoleAccessV2,
     UUPSUpgradeable
 {
     address public nend;
@@ -25,7 +25,7 @@ contract LendingPoolStakingV2 is
     uint48 public escrowLockPeriod;
     // Active stake token count
     uint256 public stakeTokenCount;
-    // Active stake count
+    // Active stake count only for stakeStaus == STAKED
     uint256 public ongoingStakeCount;
     mapping(address => uint256) internal ifpTokenToAmount;
     // User address to this week's escrowed reward stake id
@@ -43,22 +43,42 @@ contract LendingPoolStakingV2 is
 
     // New storage
     mapping(uint256 => Stake) public stakes;
-    uint256 public nextStakeId = 1;
+    uint256 public nextStakeId;
     mapping(uint256 => bool) public isActiveStake;
     mapping(uint256 => uint256) public activeStakeIndices; // stakeId => index
     mapping(uint256 => uint256) public activeStakesById; // index => stakeId
+    // all active stake IDs count
     uint256 public activeStakesCount;
 
     // Flag to track if migration has happened
-    bool public migrationCompleted;
+    // bool public migrationCompleted;
 
     // Add event for monitoring
-    event StakeMigrationCompleted(uint256 stakedMigrated);
+    // event StakeMigrationCompleted(uint256 stakedMigrated);
     // Add a new event to track clearing
-    event OldStakesCleared(uint256 clearedStakes);
+    // event OldStakesCleared(uint256 clearedStakes);
+
+    // event InPutParam(
+    //     uint256 stakeId,
+    //     address staker,
+    //     address token,
+    //     uint48 start,
+    //     uint48 end,
+    //     uint256[3] amountsPerDuration,
+    //     uint256 rewardAllocated,
+    //     bool isEscrow,
+    //     EscrowStatus escrowStatus,
+    //     StakeStatus stakeStatus
+    // );
 
     function resetActiveStakeIds(uint256 _activeIdCount) external onlyOwner {
-        require(nextStakeId == 1, "No stakes to reset");
+        require(nextStakeId > 1, "No stakes to reset");
+
+        if (_activeIdCount > 0) {
+            require(_activeIdCount <= nextStakeId, "Invalid active ID count");
+        } else {
+            _activeIdCount = nextStakeId - 1;
+        }
 
         // Reset counters first
         activeStakesCount = 0;
@@ -74,33 +94,113 @@ contract LendingPoolStakingV2 is
         }
     }
 
-    function migrateStakesToMapping() external onlyOwner {
-        require(!migrationCompleted, "Migration already performed");
+    function migrateStakeTokenToNend(
+        address _token
+    ) external onlyOwner {
+        require(_token != nend, "Cannot migrate to the same token");
 
-        uint256 oldStakesLength = _oldStakes.length;
-        for (uint256 i = 0; i < oldStakesLength; i++) {
-            Stake memory oldStake = _oldStakes[i];
-            uint256 stakeId = i + 1; // Maintain the same IDs
+        totalStakedByToken_Duration[nend][0] += totalStakedByToken_Duration[_token][0];
+        totalStakedByToken_Duration[nend][1] += totalStakedByToken_Duration[_token][1];
+        totalStakedByToken_Duration[nend][2] += totalStakedByToken_Duration[_token][2];
 
-            // Copy to mapping
-            stakes[stakeId] = oldStake;
-
-            // Track active stakes
-            if (oldStake.stakeStatus == StakeStatus.STAKED) {
-                isActiveStake[stakeId] = true;
-                // Add to active stakes tracking
-                activeStakesById[activeStakesCount] = stakeId;
-                activeStakeIndices[stakeId] = activeStakesCount;
-                activeStakesCount++;
-            }
-        }
-
-        // Set the next ID to be after all existing stakes
-        nextStakeId = oldStakesLength + 1;
-        migrationCompleted = true;
-
-        emit StakeMigrationCompleted(oldStakesLength);
+        // empty the old token's data
+        totalStakedByToken_Duration[_token][0] = 0;
+        totalStakedByToken_Duration[_token][1] = 0;
+        totalStakedByToken_Duration[_token][2] = 0;
     }
+
+    // /**
+    //  * @notice Import multiple stakes at once into the mapping storage
+    //  * @dev Gas-optimized import function with support for custom stake IDs
+    //  * @param _stakesToImport Array of Stake structs to import
+    //  * @param _stakeIds Optional array of specific IDs to use (must match _stakesToImport.length)
+    //  */
+    // function importStakes(
+    //     Stake[] calldata _stakesToImport,
+    //     uint256[] calldata _stakeIds
+    // ) external onlyOwner  {
+    //     uint256 length = _stakesToImport.length;
+        
+    //     // Early return for empty array
+    //     if (length == 0) return;
+        
+    //     uint256 currentActiveCount = activeStakesCount;
+    //     uint256 addedActiveCount = 0;
+    //     uint256 highestIdUsed = 0;
+        
+    //     for (uint256 i = 0; i < length;) {
+    //         // Use custom ID if provided, otherwise use sequential ID
+    //         uint256 stakeId = _stakeIds[i];
+            
+    //         // Track highest ID for nextStakeId update
+    //         if (stakeId > highestIdUsed) {
+    //             highestIdUsed = stakeId;
+    //         }
+            
+    //         Stake calldata stake = _stakesToImport[i]; // Cache the current stake
+            
+    //         // Store in mapping
+    //         stakes[stakeId] = stake;
+            
+    //         // Track active stakes
+    //         if (stake.stakeStatus == StakeStatus.STAKED) {
+    //             isActiveStake[stakeId] = true;
+                
+    //             // Add to active stakes tracking
+    //             activeStakesById[currentActiveCount] = stakeId;
+    //             activeStakeIndices[stakeId] = currentActiveCount;
+                
+    //             // Update duration totals - unroll the loop for efficiency
+    //             totalStakedByToken_Duration[stake.token][0] += stake.amountsPerDuration[0];
+    //             totalStakedByToken_Duration[stake.token][1] += stake.amountsPerDuration[1];
+    //             totalStakedByToken_Duration[stake.token][2] += stake.amountsPerDuration[2];
+                
+    //             unchecked {
+    //                 ++currentActiveCount;
+    //                 ++ongoingStakeCount;
+    //                 ++addedActiveCount;
+    //             }
+    //         }
+            
+    //         // Emit staking event
+    //         _emitStaked(stakeId);
+
+    //         unchecked { ++i; }
+    //     }
+        
+    //     // Update nextStakeId to be after the highest ID used
+    //     nextStakeId = highestIdUsed + 1;
+
+    //     activeStakesCount = currentActiveCount;
+    // }
+
+    // function migrateStakesToMapping() external onlyOwner {
+    //     // require(!migrationCompleted, "Migration already performed");
+
+    //     uint256 oldStakesLength = _oldStakes.length;
+    //     for (uint256 i = 0; i < oldStakesLength; i++) {
+    //         Stake memory oldStake = _oldStakes[i];
+    //         uint256 stakeId = i + 1; // Maintain the same IDs
+
+    //         // Copy to mapping
+    //         stakes[stakeId] = oldStake;
+
+    //         // Track active stakes
+    //         if (oldStake.stakeStatus == StakeStatus.STAKED) {
+    //             isActiveStake[stakeId] = true;
+    //             // Add to active stakes tracking
+    //             activeStakesById[activeStakesCount] = stakeId;
+    //             activeStakeIndices[stakeId] = activeStakesCount;
+    //             activeStakesCount++;
+    //         }
+    //     }
+
+    //     // Set the next ID to be after all existing stakes
+    //     nextStakeId = oldStakesLength + 1;
+    //     migrationCompleted = true;
+
+    //     emit StakeMigrationCompleted(oldStakesLength);
+    // }
 
     function setRewardAllocations(
         uint8[3] memory _rewardAllocations
@@ -122,6 +222,10 @@ contract LendingPoolStakingV2 is
     ) public virtual initializer {
         nend = _nend;
         lendingPool = _lendingPool;
+
+        // Set initial values
+        nextStakeId = 1;
+
         // Add native token
         activeStakeTokens[address(0)] = true;
         stakeTokens.push(address(0));
@@ -137,7 +241,7 @@ contract LendingPoolStakingV2 is
         rewardAllocations = [20, 30, 50];
 
         __ERC721_init("Escrowed Asset Bond", "EAB");
-        __MWOwnable_init();
+        __Ownable_init();
         __Testing_init();
     }
 
@@ -177,7 +281,7 @@ contract LendingPoolStakingV2 is
         uint256[3] memory _amounts;
         _amounts[_durationId] = _amount;
 
-        uint256 stakeId = nextStakeId;
+        uint256 stakeId = nextStakeId > 0 ? nextStakeId : 1;
         nextStakeId++;
 
         stakes[stakeId] = Stake(
@@ -333,7 +437,7 @@ contract LendingPoolStakingV2 is
             revert Unauthorized();
         }
 
-        require(migrationCompleted, "Must migrate stakes first");
+        // require(migrationCompleted, "Must migrate stakes first");
 
         uint256 _rolledOverInflationReward = _inflationReward + poolRollOver;
         poolRollOver = 0;
@@ -388,7 +492,7 @@ contract LendingPoolStakingV2 is
         override
         onlyOwner
     {
-        require(migrationCompleted, "Must migrate stakes first");
+        // require(migrationCompleted, "Must migrate stakes first");
 
         for (uint256 i = 0; i < stakeTokens.length; i++) {
             ifpTokenToAmount[stakeTokens[i]] = lendingPool.getNamedBalance(
@@ -637,6 +741,21 @@ contract LendingPoolStakingV2 is
         );
     }
 
+    // function _emitBulkInput(uint256 _stakeId, Stake memory _stake) internal virtual {
+    //     emit InPutParam(
+    //         _stakeId,
+    //         _stake.staker,
+    //         _stake.token,
+    //         _stake.start,
+    //         _stake.end,
+    //         _stake.amountsPerDuration,
+    //         _stake.rewardAllocated,
+    //         _stake.isEscrow,
+    //         _stake.escrowStatus,
+    //         _stake.stakeStatus
+    //     );
+    // }
+
     function _afterTokenTransfer(
         address from,
         address to,
@@ -650,23 +769,23 @@ contract LendingPoolStakingV2 is
 
     function _authorizeUpgrade(address) internal virtual override onlyOwner {}
 
-    /**
-     * @notice Clears the old stakes array to free up storage after migration
-     * @dev Can only be called after migration is complete
-     */
-    function clearOldStakesStorage() external onlyOwner {
-        require(migrationCompleted, "Migration must be completed first");
+    // /**
+    //  * @notice Clears the old stakes array to free up storage after migration
+    //  * @dev Can only be called after migration is complete
+    //  */
+    // function clearOldStakesStorage() external onlyOwner {
+    //     require(migrationCompleted, "Migration must be completed first");
 
-        // Get current length of old stakes array
-        uint256 length = _oldStakes.length;
+    //     // Get current length of old stakes array
+    //     uint256 length = _oldStakes.length;
 
-        // Clear the array by setting its length to 0
-        // This is the proper way to clear a storage array in Solidity
-        assembly {
-            // Store array length (0) at the array's storage slot
-            sstore(_oldStakes.slot, 0)
-        }
+    //     // Clear the array by setting its length to 0
+    //     // This is the proper way to clear a storage array in Solidity
+    //     assembly {
+    //         // Store array length (0) at the array's storage slot
+    //         sstore(_oldStakes.slot, 0)
+    //     }
 
-        emit OldStakesCleared(length);
-    }
+    //     emit OldStakesCleared(length);
+    // }
 }

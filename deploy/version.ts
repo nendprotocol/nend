@@ -2,14 +2,14 @@
 const version = {
   mainnet: true,
   turbo: false,
-  number: 2.9 // max: 9999999999
+  number: 2.16 // max: 9999999999
 };
 
 // ----testnet
 // const version = {
 //   mainnet: false,
 //   turbo: false,
-//   number: 8.6 // max: 9999999999
+//   number: 8.11 // max: 9999999999
 // };
 
 // ----turbo

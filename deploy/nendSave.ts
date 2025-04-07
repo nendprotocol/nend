@@ -29,6 +29,40 @@ import vpcLevels from './models/vpcLevels';
 import { VaultProxyAddress } from './models/vaultProxy';
 import { CollectionType } from './models/enums';
 import { CollectionStatsModel } from './models/models';
+import { MoreThan } from 'typeorm';
+
+export async function getLendingPoolStake (chainCode : string) {
+  const chainName = ChainNames[Number(chainCode)].name;
+  console.log('chainName', chainName);
+  const repository = AppDataSource.manager.getRepository(LendingPoolStake);
+  const queryResult : any = await repository.find({
+    where: {
+      chain: chainName/* ,
+      start: MoreThan(new Date('2025-03-24 03:37:23')) */
+    },
+    order: {
+      start: 'ASC'
+    }
+  });
+
+  // conver the result to the model
+  const result = queryResult.map((item: any) => ({
+    stakeId: item.id,
+    staker: item.stakerAddress,
+    token: item.tokenAddress,
+    start: item.start,
+    end: item.end,
+    amountsPerDuration: item.amountsPerDuration,
+    rewardAllocated: item.rewardAllocated,
+    isEscrow: item.isEscrow,
+    escrowStatus: item.escrowStatus,
+    stakeStatus: item.stakeStatus
+  }));
+
+  // console.log(result);
+
+  return result;
+}
 
 async function saveToChain (chainCode : string, contractsChain : Record<string, ContractAddress>) {
   const repository = AppDataSource.manager.getRepository(Chain);
