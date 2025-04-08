@@ -41,8 +41,12 @@ interface ILendingPoolStaking {
     }
 
     struct RewardPeriod {
+        uint64 periodId;
+        uint64 startTime;
         uint256 rewardsToDistribute;
         uint256 rewardsClaimed;
+        uint256 ifpRewardToDistribute;
+        uint256 ifpRewardClaimed;
     }
 
     event Staked(
