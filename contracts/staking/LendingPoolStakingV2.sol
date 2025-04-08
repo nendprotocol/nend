@@ -50,8 +50,20 @@ contract LendingPoolStakingV2 is
     mapping(uint256 => bool) public isActiveStake;
     mapping(uint256 => uint256) public activeStakeIndices; // stakeId => index
     mapping(uint256 => uint256) public activeStakesById; // index => stakeId
-    // all active stake IDs count
-    // uint256 public activeStakesCount;
+    // current reward period
+    uint256 private _currentPeriod;
+    struct TokenReward {
+        RewardPeriod[2] rewardPeriods;
+    }
+
+    // A staker can claim from the previous fee period (7 days) only.
+    // The periods stored and managed from [0], such that [0] is always
+    // the current active reward period which is claimable until the
+    // public function distributeInflationRewards() call the
+    // current weeks inflated reward. [1] is last weeks feeperiod
+    uint8 private constant PERIOD_LENGTH = 2;
+    // RewardPeriod[PERIOD_LENGTH] private _recentPeriods;
+    mapping(address => mapping(uint8 =>TokenReward)) private _recentPeriods;
 
     // Flag to track if migration has happened
     // bool public migrationCompleted;
@@ -115,15 +127,9 @@ contract LendingPoolStakingV2 is
     // function migrateStakeTokenToNend(address _token) external onlyOwner {
     //     require(_token != nend, "Cannot migrate to the same token");
 
-    //     totalStakedByToken_Duration[nend][0] += totalStakedByToken_Duration[
-    //         _token
-    //     ][0];
-    //     totalStakedByToken_Duration[nend][1] += totalStakedByToken_Duration[
-    //         _token
-    //     ][1];
-    //     totalStakedByToken_Duration[nend][2] += totalStakedByToken_Duration[
-    //         _token
-    //     ][2];
+    //     totalStakedByToken_Duration[nend][0] += totalStakedByToken_Duration[_token][0];
+    //     totalStakedByToken_Duration[nend][1] += totalStakedByToken_Duration[_token][1];
+    //     totalStakedByToken_Duration[nend][2] += totalStakedByToken_Duration[_token][2];
 
     //     // empty the old token's data
     //     totalStakedByToken_Duration[_token][0] = 0;
@@ -142,89 +148,57 @@ contract LendingPoolStakingV2 is
         uint256[] calldata _stakeIds
     ) external onlyOwner  {
         uint256 length = _stakesToImport.length;
-
+        
         // Early return for empty array
         if (length == 0) return;
-
+        
         uint256 currentActiveCount = activeStakesCount;
         uint256 addedActiveCount = 0;
         uint256 highestIdUsed = 0;
-
+        
         for (uint256 i = 0; i < length;) {
             // Use custom ID if provided, otherwise use sequential ID
             uint256 stakeId = _stakeIds[i];
-
+            
             // Track highest ID for nextStakeId update
             if (stakeId > highestIdUsed) {
                 highestIdUsed = stakeId;
             }
-
+            
             Stake calldata stake = _stakesToImport[i]; // Cache the current stake
-
+            
             // Store in mapping
             stakes[stakeId] = stake;
-
+            
             // Track active stakes
             if (stake.stakeStatus == StakeStatus.STAKED) {
                 isActiveStake[stakeId] = true;
-
+                
                 // Add to active stakes tracking
                 activeStakesById[currentActiveCount] = stakeId;
                 activeStakeIndices[stakeId] = currentActiveCount;
-
+                
                 // Update duration totals - unroll the loop for efficiency
                 totalStakedByToken_Duration[stake.token][0] += stake.amountsPerDuration[0];
                 totalStakedByToken_Duration[stake.token][1] += stake.amountsPerDuration[1];
                 totalStakedByToken_Duration[stake.token][2] += stake.amountsPerDuration[2];
-
+                
                 unchecked {
                     ++currentActiveCount;
                     ++addedActiveCount;
                 }
             }
-
+            
             // Emit staking event
             _emitStaked(stakeId);
 
             unchecked { ++i; }
         }
-
+        
         // Update nextStakeId to be after the highest ID used
         nextStakeId = highestIdUsed + 1;
 
         activeStakesCount = currentActiveCount;
-    }
-
-    function setlastEscrowRewards(
-        uint256 _inflationReward
-    ) external virtual onlyOwner {
-
-        uint256 _rolledOverInflationReward = _inflationReward + poolRollOver;
-        poolRollOver = 0;
-
-        for (uint256 i = 0; i < stakeTokens.length; i++) {
-            address tokenAddr = stakeTokens[i];
-            uint256 poolReward = (_rolledOverInflationReward /
-                stakeTokenCount) + inflationRollOver[tokenAddr];
-            inflationRollOver[tokenAddr] = 0;
-            uint8 predefinedRollOverCount = 0;
-            for (uint8 j = 0; j < 3; j++) {
-                uint256 predefinedDurationReward = (poolReward *
-                    rewardAllocations[j]) / 100;
-                if (totalStakedByToken_Duration[tokenAddr][j] == 0) {
-                    inflationRollOver[tokenAddr] += predefinedDurationReward;
-                    predefinedRollOverCount++;
-                }
-                lastEscrowRewardByToken_Duration[tokenAddr][
-                    j
-                ] = predefinedDurationReward;
-            }
-            // Reward for all durations was rolled over => Pool rollover
-            if (predefinedRollOverCount == 3) {
-                inflationRollOver[tokenAddr] = 0;
-                poolRollOver += _inflationReward / stakeTokenCount;
-            }
-        }
     }
 
     // function migrateStakesToMapping() external onlyOwner {
@@ -254,6 +228,23 @@ contract LendingPoolStakingV2 is
 
     //     // emit StakeMigrationCompleted(oldStakesLength);
     // }
+
+    function _recentPeriodsStorage(address token, uint8 duration, uint8 index) internal view returns (RewardPeriod storage) {
+        return _recentPeriods[token][duration].rewardPeriods[(_currentPeriod + index) % uint256(PERIOD_LENGTH)];
+    }
+
+    function recentFeePeriods(address token, uint8 duration, uint8 index) external view
+        returns (
+            uint256 rewardsToDistribute,
+            uint256 rewardsClaimed
+        )
+    {
+        RewardPeriod memory rewardPeriod = _recentPeriodsStorage(token, duration, index);
+        return (
+            rewardPeriod.rewardsToDistribute,
+            rewardPeriod.rewardsClaimed
+        );
+    }
 
     function setRewardAllocations(
         uint8[3] memory _rewardAllocations
@@ -376,10 +367,11 @@ contract LendingPoolStakingV2 is
         _stake.stakeStatus = StakeStatus.STAKED;
         // ongoingStakeCount++;
 
-        for (uint8 i = 0; i < 3; i++) {
-            totalStakedByToken_Duration[nend][i] += _stake.amountsPerDuration[
-                i
-            ];
+        for (uint8 i = 0; i < 3; ) {
+            totalStakedByToken_Duration[nend][i] += _stake.amountsPerDuration[i];
+            unchecked {
+                ++i;
+            }
         }
 
         // Mark as active
@@ -396,7 +388,7 @@ contract LendingPoolStakingV2 is
     function _compoundEscrow(
         uint256 _stakeId,
         uint256 _inflationReward
-    ) internal virtual {
+    ) internal virtual  {
         Stake storage _stake = stakes[_stakeId];
         address tokenAddress = _stake.isEscrow ? nend : _stake.token;
         uint256 lastEscrowId = userToStakeTokenToLastEscrowId[_stake.staker][
@@ -411,49 +403,33 @@ contract LendingPoolStakingV2 is
             uint256 newEscrowId = nextStakeId;
             nextStakeId++;
 
-            stakes[newEscrowId] = Stake(
+
+            userToStakeTokenToLastEscrowId[_stake.staker][
+                tokenAddress
+            ] = lastEscrowId;
+
+            for (uint8 i = 0; i < 3; ) {
+                uint256 _reward = _calculateReward(
+                    tokenAddress,
+                    i,
+                    _stake.amountsPerDuration[i],
+                    (_inflationReward / stakeTokenCount) + inflationRollOver[tokenAddress]
+                );
+                _amounts[i] += _reward;
+                unchecked {
+                    ++i;
+                }
+            }
+
+            emit Staked(
+                lastEscrowId,
                 _stake.staker,
                 tokenAddress,
                 uint48(block.timestamp),
-                uint48(block.timestamp) +
-                    escrowLockPeriod /
-                    (testing ? 1008 : 1),
-                _amounts,
-                0,
-                true,
-                EscrowStatus.DEFAULT,
-                StakeStatus.DEFAULT
+                uint48(block.timestamp) + (escrowLockPeriod / (testing ? 1008 : 1)),
+                _stake.amountsPerDuration,
+                true
             );
-
-            // Mark stake as active and add to active IDs
-            // isActiveStake[newEscrowId] = true;
-            // activeStakesById[activeStakesCount] = newEscrowId;
-            // activeStakeIndices[newEscrowId] = activeStakesCount;
-            // activeStakesCount++;
-
-            lastEscrowId = userToStakeTokenToLastEscrowId[_stake.staker][
-                tokenAddress
-            ] = newEscrowId;
-
-            // Emit event right when the stake is created
-            // _emitStaked(lastEscrowId);
-        }
-
-        Stake storage _escrow = stakes[lastEscrowId];
-
-        for (uint8 i = 0; i < 3; ) {
-            uint256 _reward = _calculateReward(
-                tokenAddress,
-                i,
-                _stake.amountsPerDuration[i],
-                _inflationReward /
-                    stakeTokenCount +
-                    inflationRollOver[tokenAddress]
-            );
-            _escrow.amountsPerDuration[i] += _reward;
-            unchecked {
-                ++i;
-            }
         }
     }
 
@@ -492,50 +468,95 @@ contract LendingPoolStakingV2 is
 
         // require(migrationCompleted, "Must migrate stakes first");
 
-        uint256 _rolledOverInflationReward = _inflationReward + poolRollOver;
-        poolRollOver = 0;
+        uint256 toDistributeReward = _inflationReward + _calculatePoolRollOver();
 
-        uint256 initialActiveCount = activeStakesCount;
-
-        for (uint256 i = 0; i < initialActiveCount; ) {
+        for (uint256 i = 0; i < activeStakesCount; ) {
             uint256 stakeId = activeStakesById[i];
             // Combined condition check to save on branching
             if (
                 isActiveStake[stakeId] &&
                 stakes[stakeId].stakeStatus == StakeStatus.STAKED
             ) {
-                _compoundEscrow(stakeId, _rolledOverInflationReward);
+                _compoundEscrow(stakeId, toDistributeReward);
             }
             unchecked {
                 ++i;
             }
         }
 
-        for (uint256 i = 0; i < stakeTokens.length; i++) {
-            address tokenAddr = stakeTokens[i];
-            uint256 poolReward = (_rolledOverInflationReward /
-                stakeTokenCount) + inflationRollOver[tokenAddr];
-            inflationRollOver[tokenAddr] = 0;
-            uint8 predefinedRollOverCount = 0;
-            for (uint8 j = 0; j < 3; j++) {
-                uint256 predefinedDurationReward = (poolReward *
-                    rewardAllocations[j]) / 100;
-                if (totalStakedByToken_Duration[tokenAddr][j] == 0) {
-                    inflationRollOver[tokenAddr] += predefinedDurationReward;
-                    predefinedRollOverCount++;
-                }
-                lastEscrowRewardByToken_Duration[tokenAddr][
-                    j
-                ] = predefinedDurationReward;
-            }
-            // Reward for all durations was rolled over => Pool rollover
-            if (predefinedRollOverCount == 3) {
-                inflationRollOver[tokenAddr] = 0;
-                poolRollOver += _inflationReward / stakeTokenCount;
-            }
-        }
+        // for (uint256 i = 0; i < stakeTokens.length; i++) {
+        //     address tokenAddr = stakeTokens[i];
+        //     uint256 poolReward = _rolledOverInflationReward /
+        //         stakeTokenCount +
+        //         inflationRollOver[tokenAddr];
+        //     inflationRollOver[tokenAddr] = 0;
+        //     uint8 predefinedRollOverCount = 0;
+        //     for (uint8 j = 0; j < 3; j++) {
+        //         uint256 predefinedDurationReward = (poolReward *
+        //             rewardAllocations[j]) / 100;
+        //         if (totalStakedByToken_Duration[tokenAddr][j] == 0) {
+        //             inflationRollOver[tokenAddr] += predefinedDurationReward;
+        //             predefinedRollOverCount++;
+        //         }
+        //         lastEscrowRewardByToken_Duration[tokenAddr][
+        //             j
+        //         ] = predefinedDurationReward;
+        //     }
+        //     // Reward for all durations was rolled over => Pool rollover
+        //     if (predefinedRollOverCount == 3) {
+        //         inflationRollOver[tokenAddr] = 0;
+        //         poolRollOver += _inflationReward / stakeTokenCount;
+        //     }
+        // }
+        _closeCurrentPeriod(toDistributeReward);
 
         emit InflationRewardDistributed();
+    }
+
+    function _closeCurrentPeriod(uint256 toDistributeReward) internal virtual {
+        uint256 tokenPoolReward = toDistributeReward / stakeTokenCount;
+
+        _currentPeriod = (_currentPeriod + PERIOD_LENGTH - 1) % PERIOD_LENGTH;
+
+        for (uint256 i = 0; i < stakeTokens.length; ) {
+            for (uint8 j = 0; j < 3; ) {
+                if (totalStakedByToken_Duration[stakeTokens[i]][j] != 0) {
+                    uint256 durationReward = (tokenPoolReward * rewardAllocations[j]) / 100;
+                    // delete _recentPeriods[stakeTokens[i]][j].rewardPeriods[_currentPeriod];
+                    _recentPeriodsStorage(stakeTokens[i], j, 0).rewardsToDistribute = durationReward;
+                    _recentPeriodsStorage(stakeTokens[i], j, 0).rewardsClaimed = 0;
+                }
+
+                unchecked {
+                    ++j;
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _calculatePoolRollOver() internal virtual view returns (uint256 poolRewardRemained) {
+        for (uint256 i = 0; i < stakeTokens.length; ) {
+            poolRewardRemained += _calculateInflationRollOver(
+                stakeTokens[i]
+            );
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _calculateInflationRollOver(address _token) internal virtual view returns (uint256 inflationRewardRemained) {
+        for (uint8 j = 0; j < 3; ) {
+            inflationRewardRemained += _recentPeriodsStorage(_token, j, 0).rewardsToDistribute
+                - _recentPeriodsStorage(_token, j, 1).rewardsClaimed;
+            unchecked {
+                ++j;
+            }
+        }
     }
 
     function distributeNonInflationRewards()
@@ -665,6 +686,7 @@ contract LendingPoolStakingV2 is
 
         if (_stake.stakeStatus == StakeStatus.STAKED) {
             // ongoingStakeCount--;
+            _removeActiveStake(_stakeId);
 
             for (uint8 i = 0; i < 3; i++) {
                 totalStakedByToken_Duration[
@@ -686,29 +708,29 @@ contract LendingPoolStakingV2 is
             emit EscrowStatusChanged(_stakeId, EscrowStatus.CLAIMED);
         }
 
-        // O(1) removal process: swap the element to remove with the last element and then remove the last
-        if (isActiveStake[_stakeId]) {
-            isActiveStake[_stakeId] = false;
+        // // O(1) removal process: swap the element to remove with the last element and then remove the last
+        // if (isActiveStake[_stakeId]) {
+        //     isActiveStake[_stakeId] = false;
 
-            uint256 indexToRemove = activeStakeIndices[_stakeId];
+        //     uint256 indexToRemove = activeStakeIndices[_stakeId];
 
-            // Only perform swap if not the last item
-            if (indexToRemove < activeStakesCount - 1) {
-                // Get last stake ID
-                uint256 lastStakeId = activeStakesById[activeStakesCount - 1];
+        //     // Only perform swap if not the last item
+        //     if (indexToRemove < activeStakesCount - 1) {
+        //         // Get last stake ID
+        //         uint256 lastStakeId = activeStakesById[activeStakesCount - 1];
 
-                // Move last item to the removed position
-                activeStakesById[indexToRemove] = lastStakeId;
-                activeStakeIndices[lastStakeId] = indexToRemove;
-            }
+        //         // Move last item to the removed position
+        //         activeStakesById[indexToRemove] = lastStakeId;
+        //         activeStakeIndices[lastStakeId] = indexToRemove;
+        //     }
 
-            // Clean up and reduce count
-            if (activeStakesCount > 0) {
-                activeStakesCount--;
-                delete activeStakesById[activeStakesCount];
-            }
-            delete activeStakeIndices[_stakeId];
-        }
+        //     // Clean up and reduce count
+        //     if (activeStakesCount > 0) {
+        //         activeStakesCount--;
+        //         delete activeStakesById[activeStakesCount];
+        //     }
+        //     delete activeStakeIndices[_stakeId];
+        // }
 
         delete stakes[_stakeId];
     }
@@ -744,6 +766,41 @@ contract LendingPoolStakingV2 is
         string memory _tokenURI
     ) external virtual onlyOwner {
         _setTokenURI(_tokenId, _tokenURI);
+    }
+
+    /**
+     * @notice Removes a stake from the active stakes tracking arrays with O(1) complexity
+     * @dev Uses the swap-and-pop pattern to maintain array integrity while efficiently removing elements
+     * @param _stakeId The ID of the stake to remove from active tracking
+     */
+    function _removeActiveStake(uint256 _stakeId) internal virtual {
+        // Only process if the stake is actually marked as active
+        if (isActiveStake[_stakeId]) {
+            // First mark the stake as inactive
+            isActiveStake[_stakeId] = false;
+    
+            // Get the index of this stake in the activeStakesById array
+            uint256 indexToRemove = activeStakeIndices[_stakeId];
+    
+            // Only perform swap if not the last item (optimization to avoid unnecessary operations)
+            if (indexToRemove < activeStakesCount - 1) {
+                // Get the ID of the last active stake
+                uint256 lastStakeId = activeStakesById[activeStakesCount - 1];
+    
+                // Move last item to the removed position
+                activeStakesById[indexToRemove] = lastStakeId;
+                activeStakeIndices[lastStakeId] = indexToRemove;
+            }
+    
+            // Clean up and reduce count (only if we have active stakes)
+            if (activeStakesCount > 0) {
+                activeStakesCount--;
+                delete activeStakesById[activeStakesCount];
+            }
+            
+            // Remove index mapping for the removed stake
+            delete activeStakeIndices[_stakeId];
+        }
     }
 
     function _lendingPoolTransfer(

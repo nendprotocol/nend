@@ -40,6 +40,11 @@ interface ILendingPoolStaking {
         StakeStatus stakeStatus;
     }
 
+    struct RewardPeriod {
+        uint256 rewardsToDistribute;
+        uint256 rewardsClaimed;
+    }
+
     event Staked(
         uint256 stakeId,
         address staker,
