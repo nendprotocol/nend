@@ -73,18 +73,21 @@ contract LendingPoolStakingV2 is
     // Add this at the contract level
     bool public stakesDeprecated = false;
 
+    // Reserve space for future upgrades
+    uint256[49] private __gap;
+
     function migrateStakesToUserMapping() external onlyOwner {
         require(!stakesDeprecated, "Stakes already migrated");
 
         for (uint256 i = 1; i < nextStakeId; ) {
-            Stake storage stake = stakes[i];
+            Stake memory stake = stakes[i];
             if (
                 stake.staker != address(0) &&
                 stake.stakeStatus != StakeStatus.FULFILLED
             ) {
                 uint256 userStakeIdx = userStakesCount[stake.staker] + 1;
+                stake.token = stake.isEscrow ? nend : stake.token;
                 userStakesById[stake.staker][userStakeIdx] = stake;
-                userStakesById[stake.staker][userStakeIdx].token = stake.isEscrow ? nend : stake.token;
                 stakeIdToUserIndex[i][stake.staker] = userStakeIdx;
 
                 // Add reverse mapping
@@ -152,50 +155,55 @@ contract LendingPoolStakingV2 is
         uint256[] calldata _stakeIds
     ) external onlyOwner {
         uint256 length = _stakesToImport.length;
-        
+
         // Early return for empty array
         if (length == 0) return;
-        
+
         // Validate input arrays
         require(_stakeIds.length == length, "Array lengths must match");
-        
+
         uint256 highestIdUsed = 0;
-        
+
         for (uint256 i = 0; i < length; ) {
             uint256 stakeId = _stakeIds[i];
-            
+
             // Track highest ID for nextStakeId update
             if (stakeId > highestIdUsed) {
                 highestIdUsed = stakeId;
             }
-            
+
             // Create a memory copy with the correct token value
             Stake memory stake = _stakesToImport[i];
             stake.token = stake.isEscrow ? nend : stake.token;
-            
+
             // Only add if the staker is valid
             if (stake.staker != address(0)) {
+                // Update totals if stake is active
+                if (stake.stakeStatus == StakeStatus.STAKED) {
+                    totalStakedByToken_Duration[stake.token][0] += stake
+                        .amountsPerDuration[0];
+                    totalStakedByToken_Duration[stake.token][1] += stake
+                        .amountsPerDuration[1];
+                    totalStakedByToken_Duration[stake.token][2] += stake
+                        .amountsPerDuration[2];
+                }
+
                 // Add to user's stakes (ONLY ONCE)
                 uint256 userStakeIdx = userStakesCount[stake.staker] + 1;
                 userStakesById[stake.staker][userStakeIdx] = stake;
                 stakeIdToUserIndex[stakeId][stake.staker] = userStakeIdx;
                 userIndexToStakeId[stake.staker][userStakeIdx] = stakeId;
                 userStakesCount[stake.staker]++;
-                
-                // Update totals if stake is active
-                if (stake.stakeStatus == StakeStatus.STAKED) {
-                    totalStakedByToken_Duration[stake.token][0] += stake.amountsPerDuration[0];
-                    totalStakedByToken_Duration[stake.token][1] += stake.amountsPerDuration[1];
-                    totalStakedByToken_Duration[stake.token][2] += stake.amountsPerDuration[2];
-                }
-                
+
                 // Emit staking event
                 _emitStaked(stakeId, stake);
             }
-            
-            unchecked { ++i; }
+
+            unchecked {
+                ++i;
+            }
         }
-        
+
         // Update nextStakeId to be after the highest ID used
         nextStakeId = highestIdUsed + 1;
     }
@@ -277,6 +285,8 @@ contract LendingPoolStakingV2 is
         __ERC721_init("Escrowed Asset Bond", "EAB");
         __Ownable_init();
         __Testing_init();
+
+        __UUPSUpgradeable_init();
     }
 
     function deposit(
@@ -315,7 +325,7 @@ contract LendingPoolStakingV2 is
         uint256[3] memory _amounts;
         _amounts[_durationId] = _amount;
 
-        uint256 stakeId = nextStakeId > 0 ? nextStakeId : 1;
+        uint256 stakeId = nextStakeId;
         nextStakeId++;
 
         Stake memory newStake = Stake(
@@ -460,11 +470,7 @@ contract LendingPoolStakingV2 is
 
         for (uint256 i = 0; i < stakeTokens.length; ) {
             // Get the staked amount for the token
-            uint256 stakedTokenAmt = totalStakedByToken_Duration[
-                stakeTokens[i]
-            ][0] +
-                totalStakedByToken_Duration[stakeTokens[i]][1] +
-                totalStakedByToken_Duration[stakeTokens[i]][2];
+            uint256 stakedTokenAmt = _getTotalStakedForToken(stakeTokens[i]);
             if (stakedTokenAmt != 0) {
                 // Get the accrued IFP token balance for the token
                 uint ifpAccredTokenAmt = lendingPool.getNamedBalance(
@@ -529,6 +535,17 @@ contract LendingPoolStakingV2 is
         );
     }
 
+    function _getTotalStakedForToken(
+        address _token
+    ) internal view returns (uint256 totalStaked) {
+        unchecked {
+            totalStaked =
+                totalStakedByToken_Duration[_token][0] +
+                totalStakedByToken_Duration[_token][1] +
+                totalStakedByToken_Duration[_token][2];
+        }
+    }
+
     function getClaimableRewards(
         address _user,
         address _token
@@ -545,9 +562,7 @@ contract LendingPoolStakingV2 is
         }
 
         // Get total staked amount for this token
-        uint256 totalTokenStaked = totalStakedByToken_Duration[_token][0] +
-            totalStakedByToken_Duration[_token][1] +
-            totalStakedByToken_Duration[_token][2];
+        uint256 totalTokenStaked = _getTotalStakedForToken(_token);
 
         // If nothing staked, no rewards
         if (totalTokenStaked == 0) {
@@ -678,6 +693,10 @@ contract LendingPoolStakingV2 is
             stakeTokenCount;
     }
 
+    /**
+     * @notice Placeholder for interface compatibility
+     * @dev Implementation now uses claim-based reward system instead of direct distribution
+     */
     function distributeNonInflationRewards()
         external
         virtual
@@ -696,13 +715,7 @@ contract LendingPoolStakingV2 is
             address token = stakeTokens[i];
             uint256 reward = lendingPool.getNamedBalance("ifp", token);
 
-            uint256 stakedAmount;
-            unchecked {
-                stakedAmount =
-                    totalStakedByToken_Duration[token][0] +
-                    totalStakedByToken_Duration[token][1] +
-                    totalStakedByToken_Duration[token][2];
-            }
+            uint256 stakedAmount = _getTotalStakedForToken(token);
 
             if (reward > 0 && stakedAmount > 0) {
                 return true;
@@ -716,7 +729,10 @@ contract LendingPoolStakingV2 is
     }
 
     function issueEAB(uint256 _stakeId) external virtual {
-        Stake storage _stake = stakes[_stakeId];
+        uint256 userIndex = stakeIdToUserIndex[_stakeId][msg.sender];
+        require(userIndex > 0, "Stake not found or not owned by caller");
+
+        Stake storage _stake = userStakesById[msg.sender][userIndex];
         if (_stake.staker != msg.sender) {
             revert Unauthorized();
         }
@@ -789,10 +805,12 @@ contract LendingPoolStakingV2 is
             }
         }
 
+        // _stake will be deleted from userStakesById so skip to update
         // _stake.stakeStatus = StakeStatus.FULFILLED;
         emit StakeStatusChanged(_stakeId, StakeStatus.FULFILLED);
 
         if (_stake.escrowStatus == EscrowStatus.ISSUED || _stake.isEscrow) {
+            // _stake will be deleted from userStakesById so skip to update
             // _stake.escrowStatus = EscrowStatus.CLAIMED;
 
             if (_exists(_stakeId)) {
@@ -940,7 +958,6 @@ contract LendingPoolStakingV2 is
         uint256 _stakeId,
         Stake memory _stake
     ) internal virtual {
-        // Stake memory _stake = stakes[_stakeId];
         emit Staked(
             _stakeId,
             _stake.staker,
