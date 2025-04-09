@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
 import "../vault/Vault.sol";
 import "./interfaces/ILendingPoolStaking.sol";
@@ -9,6 +10,10 @@ import "../test/TestingV2.sol";
 import "../access/SimpleRoleAccessV2.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
+// Storage layout v1: Used _oldStakes[] array
+// Storage layout v2: Uses mapping(uint256 => Stake) stakes
+// Storage layout v3: Uses userStakesById[user][index] for user-centric access
 
 contract LendingPoolStakingV2 is
     ILendingPoolStaking,
@@ -47,9 +52,6 @@ contract LendingPoolStakingV2 is
     // New storage
     mapping(uint256 => Stake) public stakes;
     uint256 public nextStakeId;
-    // mapping(uint256 => bool) public isActiveStake;
-    // mapping(uint256 => uint256) public activeStakeIndices; // stakeId => index
-    // mapping(uint256 => uint256) public activeStakesById; // index => stakeId
 
     // A staker can claim from the previous fee period (7 days) only.
     // The periods stored and managed from [0], such that [0] is always
@@ -73,10 +75,46 @@ contract LendingPoolStakingV2 is
     // Add this at the contract level
     bool public stakesDeprecated = false;
 
+    // Add to contract header
+    /**
+     * @dev IMPORTANT: When adding new storage variables, add them BELOW 
+     * this comment and ABOVE the storage gap.
+     */
     // Reserve space for future upgrades
-    uint256[49] private __gap;
+    uint256[50] private __gap;
 
-    function migrateStakesToUserMapping() external onlyOwner {
+    // Add batch migration capability for safe upgrades
+    function migrateStakesInBatch(uint256 startId, uint256 batchSize) external onlyOwner {
+        require(!stakesDeprecated, "Migration already completed");
+        uint256 endId = Math.min(startId + batchSize, nextStakeId);
+        
+        for (uint256 i = startId; i < endId;) {
+            Stake memory stake = stakes[i];
+            if (
+                stake.staker != address(0) &&
+                stake.stakeStatus != StakeStatus.FULFILLED
+            ) {
+                uint256 userStakeIdx = userStakesCount[stake.staker] + 1;
+                stake.token = stake.isEscrow ? nend : stake.token;
+                userStakesById[stake.staker][userStakeIdx] = stake;
+                stakeIdToUserIndex[i][stake.staker] = userStakeIdx;
+
+                // Add reverse mapping
+                userIndexToStakeId[stake.staker][userStakeIdx] = i;
+
+                userStakesCount[stake.staker]++;
+            }
+            unchecked { ++i; }
+        }
+        
+        if (endId >= nextStakeId) {
+            stakesDeprecated = true;
+        }
+        
+        emit BatchMigrationCompleted(startId, endId);
+    }
+
+    function _migrateStakesToUserMapping() internal onlyOwner {
         require(!stakesDeprecated, "Stakes already migrated");
 
         for (uint256 i = 1; i < nextStakeId; ) {
@@ -103,46 +141,7 @@ contract LendingPoolStakingV2 is
 
         // Mark global stakes as deprecated
         stakesDeprecated = true;
-        emit UserStakesMigrationCompleted();
     }
-
-    // function resetActiveStakeIds(uint256 _activeIdCount) external onlyOwner {
-    //     require(nextStakeId > 1, "No stakes to reset");
-
-    //     if (_activeIdCount > 0) {
-    //         require(_activeIdCount <= nextStakeId, "Invalid active ID count");
-    //     } else {
-    //         _activeIdCount = nextStakeId - 1;
-    //     }
-
-    //     // Reset counters first
-    //     activeStakesCount = 0;
-
-    //     // Correctly rebuild the active stakes tracking
-    //     for (uint256 i = 1; i <= _activeIdCount; ) {
-    //         if (i == _activeIdCount) {
-    //             // set last element as nextStakeId
-    //             nextStakeId = i + 1;
-    //             break;
-    //         }
-
-    //         // Only process active stakes, but ALWAYS increment counter
-    //         if (isActiveStake[i]) {
-    //             // Add to active stakes in order
-    //             activeStakesById[activeStakesCount] = i;
-    //             activeStakeIndices[i] = activeStakesCount;
-
-    //             unchecked {
-    //                 ++activeStakesCount;
-    //             }
-    //         }
-
-    //         // Always increment i regardless of stake active status
-    //         unchecked {
-    //             ++i;
-    //         }
-    //     }
-    // }
 
     /**
      * @notice Import multiple stakes at once into the mapping storage
@@ -260,6 +259,10 @@ contract LendingPoolStakingV2 is
         address _nend,
         Vault _lendingPool
     ) public virtual initializer {
+        require(
+            _nend != address(0) && address(_lendingPool) != address(0),
+            "Invalid address"
+        );
         nend = _nend;
         lendingPool = _lendingPool;
 
@@ -325,38 +328,31 @@ contract LendingPoolStakingV2 is
         uint256[3] memory _amounts;
         _amounts[_durationId] = _amount;
 
+        // Add to user's stakes
+        uint256 userStakeIdx = userStakesCount[msg.sender] + 1;
+
+        // Direct initialization avoids memory/storage copying
+        Stake storage newStake = userStakesById[msg.sender][userStakeIdx];
+        newStake.staker = msg.sender;
+        newStake.token = _token;
+        newStake.start = uint48(block.timestamp);
+        newStake.end = uint48(block.timestamp) + (stakeDurations[_durationId] / (testing ? 1008 : 1));
+        newStake.amountsPerDuration = _amounts;
+        newStake.rewardAllocated = 0;
+        newStake.isEscrow = false;
+        newStake.escrowStatus = EscrowStatus.DEFAULT;
+        newStake.stakeStatus = StakeStatus.STAKED;
+
         uint256 stakeId = nextStakeId;
         nextStakeId++;
 
-        Stake memory newStake = Stake(
-            msg.sender,
-            _token,
-            uint48(block.timestamp),
-            uint48(block.timestamp) +
-                (stakeDurations[_durationId] / (testing ? 1008 : 1)),
-            _amounts,
-            0,
-            false,
-            EscrowStatus.DEFAULT,
-            StakeStatus.STAKED
-        );
-
-        // Add to user's stakes
-        uint256 userStakeIdx = userStakesCount[msg.sender] + 1;
         userStakesById[msg.sender][userStakeIdx] = newStake;
         userStakesCount[msg.sender]++;
-
         // Track relationship between global ID and user index
         stakeIdToUserIndex[stakeId][msg.sender] = userStakeIdx;
 
         // Add reverse mapping
         userIndexToStakeId[msg.sender][userStakeIdx] = stakeId;
-
-        // Track active stake
-        // isActiveStake[stakeId] = true;
-        // activeStakesById[activeStakesCount] = stakeId;
-        // activeStakeIndices[stakeId] = activeStakesCount;
-        // activeStakesCount++;
 
         totalStakedByToken_Duration[_token][_durationId] += _amount;
 
@@ -374,6 +370,12 @@ contract LendingPoolStakingV2 is
         return userStakesById[_user][_index];
     }
 
+    /*
+     * @notice Emit the Staked event
+     * @dev For backward compatibility, specifically for escrowed stake with 'StakeStatus.DEFAULT'
+     * @param _stakeId The ID of the stake
+     * @param _stake The stake object
+     */
     function stakeEscrowedReward(uint256 _stakeId) external virtual override {
         uint256 userIndex = stakeIdToUserIndex[_stakeId][msg.sender];
         require(userIndex > 0, "Stake not found or not owned by caller");
@@ -399,15 +401,8 @@ contract LendingPoolStakingV2 is
             }
         }
 
-        // Mark as active
-        // if (!isActiveStake[_stakeId]) {
-        //     isActiveStake[_stakeId] = true;
-        //     activeStakesById[activeStakesCount] = _stakeId;
-        //     activeStakeIndices[_stakeId] = activeStakesCount;
-        //     activeStakesCount++;
-        // }
-
         emit StakeStatusChanged(_stakeId, _stake.stakeStatus);
+
     }
 
     function _createEscrowStake(
@@ -424,26 +419,26 @@ contract LendingPoolStakingV2 is
             }
         }
 
-        uint256 stakeId = nextStakeId;
-        nextStakeId++;
-
-        // Create the escrow stake
-        Stake memory newStake = Stake(
-            _staker,
-            _token,
-            uint48(block.timestamp),
-            uint48(block.timestamp) + (escrowLockPeriod / (testing ? 1008 : 1)),
-            _amounts,
-            0,
-            true, // isEscrow
-            EscrowStatus.DEFAULT,
-            StakeStatus.DEFAULT // Not staked yet - user must call stakeEscrowedReward
-        );
-
         // Add to user's stakes
         uint256 userStakeIdx = userStakesCount[_staker] + 1;
+
+        // Create the escrow stake - direct initialization avoids memory/storage copying
+        Stake storage newStake = userStakesById[msg.sender][userStakeIdx];
+        newStake.staker = _staker;
+        newStake.token = _token;
+        newStake.start = uint48(block.timestamp);
+        newStake.end = uint48(block.timestamp) + (escrowLockPeriod / (testing ? 1008 : 1));
+        newStake.amountsPerDuration = _amounts;
+        newStake.rewardAllocated = 0;
+        newStake.isEscrow = true; // isEscrow
+        newStake.escrowStatus = EscrowStatus.DEFAULT;
+        newStake.stakeStatus = StakeStatus.STAKED; // by calling claim, the escrow is staked
+
         userStakesById[_staker][userStakeIdx] = newStake;
         userStakesCount[_staker]++;
+
+        uint256 stakeId = nextStakeId;
+        nextStakeId++;
 
         // Add mappings in both directions
         stakeIdToUserIndex[stakeId][_staker] = userStakeIdx;
@@ -551,10 +546,8 @@ contract LendingPoolStakingV2 is
         address _token
     ) public view returns (uint256 inflationReward, uint256 ifpReward) {
         // Get the previous period (the one users can claim from)
-        uint256 claimablePeriodIndex = 1; // Previous period
-        RewardPeriod memory period = _recentPeriodsStorage(
-            claimablePeriodIndex
-        );
+        uint256 idx = 1; // Previous period
+        RewardPeriod storage period = _recentPeriodsStorage(idx);
 
         // If the user already claimed for this period, return zeros
         if (_userClaimedForPeriod[_user][period.periodId]) {
@@ -594,19 +587,23 @@ contract LendingPoolStakingV2 is
 
         for (uint256 i = 0; i < userStakeCount; ) {
             uint256 idx = i + 1; // Cache the index calculation
-            Stake memory stake = userStakesById[_user][idx]; // Use memory instead of storage
+            
+            // Preliminary check on stake status to avoid loading full struct
+            if (userStakesById[_user][idx].stakeStatus == StakeStatus.STAKED) {
+                Stake storage stake = userStakesById[_user][idx];
 
-            // Only include active stakes for the specific token
-            bool isMatchingToken = stake.token == _token ||
-                (stake.isEscrow && _token == nend);
+                // Only include active stakes for the specific token
+                bool isMatchingToken = stake.token == _token ||
+                    (stake.isEscrow && _token == nend);
 
-            if (stake.stakeStatus == StakeStatus.STAKED && isMatchingToken) {
-                // Sum up all durations in unchecked block
-                unchecked {
-                    totalAmount +=
-                        stake.amountsPerDuration[0] +
-                        stake.amountsPerDuration[1] +
-                        stake.amountsPerDuration[2];
+                if (isMatchingToken) {
+                    // Sum up all durations in unchecked block
+                    unchecked {
+                        totalAmount +=
+                            stake.amountsPerDuration[0] +
+                            stake.amountsPerDuration[1] +
+                            stake.amountsPerDuration[2];
+                    }
                 }
             }
 
@@ -820,33 +817,7 @@ contract LendingPoolStakingV2 is
             emit EscrowStatusChanged(_stakeId, EscrowStatus.CLAIMED);
         }
 
-        uint256 lastUserStakeIdx = userStakesCount[msg.sender];
-
-        // If not the last element, swap with the last element
-        if (userIndex != lastUserStakeIdx) {
-            // Get last stake
-            Stake storage lastStake = userStakesById[msg.sender][
-                lastUserStakeIdx
-            ];
-
-            // Find the global ID of the last stake using reverse mapping
-            uint256 lastStakeId = userIndexToStakeId[msg.sender][
-                lastUserStakeIdx
-            ];
-
-            // Move last stake to the current position
-            userStakesById[msg.sender][userIndex] = lastStake;
-
-            // Update mappings for the moved stake
-            stakeIdToUserIndex[lastStakeId][msg.sender] = userIndex;
-            userIndexToStakeId[msg.sender][userIndex] = lastStakeId;
-        }
-
-        // Clean up
-        delete userStakesById[msg.sender][lastUserStakeIdx];
-        delete userIndexToStakeId[msg.sender][lastUserStakeIdx];
-        userStakesCount[msg.sender]--;
-        delete stakeIdToUserIndex[_stakeId][msg.sender];
+        _removeUserStake(msg.sender, _stakeId, userIndex);
     }
 
     function addStakeToken(
@@ -885,40 +856,43 @@ contract LendingPoolStakingV2 is
         _setTokenURI(_tokenId, _tokenURI);
     }
 
-    // /**
-    //  * @notice Removes a stake from the active stakes tracking arrays with O(1) complexity
-    //  * @dev Uses the swap-and-pop pattern to maintain array integrity while efficiently removing elements
-    //  * @param _stakeId The ID of the stake to remove from active tracking
-    //  */
-    // function _removeActiveStake(uint256 _stakeId) internal virtual {
-    //     // Only process if the stake is actually marked as active
-    //     if (isActiveStake[_stakeId]) {
-    //         // First mark the stake as inactive
-    //         isActiveStake[_stakeId] = false;
+    /**
+     * @notice Removes a stake from a user's storage using O(1) swap-and-pop pattern
+     * @dev Maintains data integrity when removing stakes from user mappings
+     * @param _user Address of the user whose stake is being removed
+     * @param _stakeId Global ID of the stake to remove
+     * @param _userIndex Index of the stake in the user's personal mapping
+     */
+    function _removeUserStake(
+        address _user,
+        uint256 _stakeId,
+        uint256 _userIndex
+    ) internal virtual {
+        // Get the last stake index for this user
+        uint256 lastUserStakeIdx = userStakesCount[_user];
 
-    //         // Get the index of this stake in the activeStakesById array
-    //         uint256 indexToRemove = activeStakeIndices[_stakeId];
+        // If not the last element, swap with the last element
+        if (_userIndex != lastUserStakeIdx) {
+            // Get last stake
+            Stake storage lastStake = userStakesById[_user][lastUserStakeIdx];
 
-    //         // Only perform swap if not the last item (optimization to avoid unnecessary operations)
-    //         if (indexToRemove < activeStakesCount - 1) {
-    //             // Get the ID of the last active stake
-    //             uint256 lastStakeId = activeStakesById[activeStakesCount - 1];
+            // Get last stake ID using the reverse mapping directly
+            uint256 lastStakeId = userIndexToStakeId[_user][lastUserStakeIdx];
 
-    //             // Move last item to the removed position
-    //             activeStakesById[indexToRemove] = lastStakeId;
-    //             activeStakeIndices[lastStakeId] = indexToRemove;
-    //         }
+            // Move last stake to current position
+            userStakesById[_user][_userIndex] = lastStake;
 
-    //         // Clean up and reduce count (only if we have active stakes)
-    //         if (activeStakesCount > 0) {
-    //             activeStakesCount--;
-    //             delete activeStakesById[activeStakesCount];
-    //         }
+            // Update mappings
+            stakeIdToUserIndex[lastStakeId][_user] = _userIndex;
+            userIndexToStakeId[_user][_userIndex] = lastStakeId;
+        }
 
-    //         // Remove index mapping for the removed stake
-    //         delete activeStakeIndices[_stakeId];
-    //     }
-    // }
+        // Clean up
+        delete userStakesById[_user][lastUserStakeIdx];
+        delete userIndexToStakeId[_user][lastUserStakeIdx];
+        userStakesCount[_user]--;
+        delete stakeIdToUserIndex[_stakeId][_user];
+    }
 
     function _lendingPoolTransfer(
         address _token,
@@ -938,20 +912,6 @@ contract LendingPoolStakingV2 is
             }
             lendingPool.transferERC20(_token, _to, _amount);
         }
-    }
-
-    function _calculateReward(
-        address _stakeToken,
-        uint8 _durationId,
-        uint256 _amountStaked,
-        uint256 _reward
-    ) internal view virtual returns (uint256) {
-        return
-            totalStakedByToken_Duration[_stakeToken][_durationId] == 0
-                ? 0
-                : (_reward * rewardAllocations[_durationId] * _amountStaked) /
-                    100 /
-                    totalStakedByToken_Duration[_stakeToken][_durationId];
     }
 
     function _emitStaked(
@@ -981,37 +941,13 @@ contract LendingPoolStakingV2 is
             if (fromUserIndex > 0) {
                 // Get the stake
                 Stake memory stake = userStakesById[from][fromUserIndex];
-
+    
                 // Update stake owner
                 stake.staker = to;
-
-                // O(1) removal from original owner using swap-and-pop
-                uint256 lastUserStakeIdx = userStakesCount[from];
-
-                if (fromUserIndex != lastUserStakeIdx) {
-                    // Get last stake
-                    Stake storage lastStake = userStakesById[from][
-                        lastUserStakeIdx
-                    ];
-
-                    // Get last stake ID using the reverse mapping directly
-                    uint256 lastStakeId = userIndexToStakeId[from][
-                        lastUserStakeIdx
-                    ];
-
-                    // Move last stake to current position
-                    userStakesById[from][fromUserIndex] = lastStake;
-
-                    // Update mappings
-                    stakeIdToUserIndex[lastStakeId][from] = fromUserIndex;
-                    userIndexToStakeId[from][fromUserIndex] = lastStakeId;
-                }
-
-                delete userStakesById[from][lastUserStakeIdx];
-                delete userIndexToStakeId[from][lastUserStakeIdx];
-                userStakesCount[from]--;
-                delete stakeIdToUserIndex[tokenId][from];
-
+    
+                // Remove stake from original owner using extracted function
+                _removeUserStake(from, tokenId, fromUserIndex);
+    
                 // Add to new owner
                 uint256 toUserIndex = userStakesCount[to] + 1;
                 userStakesById[to][toUserIndex] = stake;
@@ -1021,9 +957,22 @@ contract LendingPoolStakingV2 is
         }
     }
 
-    function _authorizeUpgrade(address) internal virtual override onlyOwner {}
+    /**
+     * @notice Authorizes an upgrade to a new implementation
+     * @dev This function will automatically run migrations if needed
+     * @param newImplementation Address of the new implementation contract
+     */
+    function _authorizeUpgrade(address newImplementation) internal virtual override onlyOwner {
+        // Run necessary migrations automatically during upgrade
+        if (!stakesDeprecated) {
+            _migrateStakesToUserMapping();
+        }
+        emit ImplementationUpgraded(newImplementation);
+    }
 
-    event UserStakesMigrationCompleted();
+    // Add this event
+    event ImplementationUpgraded(address indexed newImplementation);
+    event BatchMigrationCompleted(uint256 startId, uint256 endId);
     event NewPeriodStarted(
         uint64 periodId,
         uint64 timestamp,
