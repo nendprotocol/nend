@@ -44,7 +44,7 @@ interface ILendingPoolStaking {
         uint64 periodId;
         uint64 startTime;
         uint256 rewardsToDistribute;
-        uint256 rewardsClaimed;
+        uint256 rewardsStaked;
         uint256 ifpRewardToDistribute;
         uint256 ifpRewardClaimed;
     }

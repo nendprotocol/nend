@@ -63,7 +63,7 @@ contract LendingPoolStakingV2 is
     // current weeks inflated reward. [1] is last weeks feeperiod
     uint8 private constant PERIOD_LENGTH = 2;
     // RewardPeriod[PERIOD_LENGTH] private _recentPeriods;
-    mapping(address => mapping(uint8 => TokenReward)) private _recentPeriods;
+    mapping(address => TokenReward) private _recentPeriods;
     mapping(address => mapping(uint256 => Stake))
         public userStakesById; // user => stakeId ==> stake
     mapping(address => uint256) public userStakesCount; // user => stake count
@@ -240,34 +240,28 @@ contract LendingPoolStakingV2 is
 
     function _recentPeriodsStorage(
         address token,
-        uint8 duration,
         uint8 index
     ) internal view returns (RewardPeriod storage) {
         return
-            _recentPeriods[token][duration].rewardPeriods[
+            _recentPeriods[token].rewardPeriods[
                 (_currentPeriod + index) % uint256(PERIOD_LENGTH)
             ];
     }
 
-    function recentFeePeriods(
-        address token,
-        uint8 duration,
-        uint8 index
-    )
-        external
-        view
-        returns (uint64 periodId, uint64 startTime, uint256 rewardsToDistribute, uint256 rewardsClaimed, uint256 ifpRewardToDistribute, uint256 ifpRewardClaimed)
-    {
-        RewardPeriod memory rewardPeriod = _recentPeriodsStorage(
-            token,
-            duration,
-            index
-        );
+    function recentFeePeriods(address token, uint8 index) external view returns (
+        uint64 periodId, 
+        uint64 startTime, 
+        uint256 rewardsToDistribute, 
+        uint256 rewardsStaked,
+        uint256 ifpRewardToDistribute, 
+        uint256 ifpRewardClaimed
+    ) {
+        RewardPeriod memory rewardPeriod = _recentPeriodsStorage(token, index);
         return (
             rewardPeriod.periodId,
             rewardPeriod.startTime,
             rewardPeriod.rewardsToDistribute,
-            rewardPeriod.rewardsClaimed,
+            rewardPeriod.rewardsStaked,
             rewardPeriod.ifpRewardToDistribute,
             rewardPeriod.ifpRewardClaimed
             );
@@ -507,8 +501,9 @@ contract LendingPoolStakingV2 is
 
         // require(migrationCompleted, "Must migrate stakes first");
 
-        uint256 toDistributeReward = _inflationReward +
+        (uint256 toDistributeReward, uint256 ifpPoolRemain) = 
             _calculatePoolRollOver();
+        toDistributeReward += _inflationReward;
 
         // for (uint256 i = 0; i < activeStakesCount; ) {
         //     uint256 stakeId = activeStakesById[i];
@@ -548,60 +543,75 @@ contract LendingPoolStakingV2 is
         //         poolRollOver += _inflationReward / stakeTokenCount;
         //     }
         // }
-        _closeCurrentPeriod(toDistributeReward);
+        _closeCurrentPeriod(toDistributeReward, ifpPoolRemain);
 
         emit InflationRewardDistributed();
     }
 
-    function _closeCurrentPeriod(uint256 toDistributeReward) internal virtual {
-        uint256 tokenPoolReward = toDistributeReward / stakeTokenCount;
+    function _closeCurrentPeriod(uint256 toDistributeReward, uint ifpPoolRemain) internal virtual {
+        uint256 rewardRemainByToken = toDistributeReward / stakeTokenCount;
+        uint256 ifpRemainByToken = ifpPoolRemain / stakeTokenCount;
 
-        _currentPeriod = (_currentPeriod + PERIOD_LENGTH - 1) % PERIOD_LENGTH;
-
+        uint256 ifpRewardAmount;
+        uint256 stakedAmount;
         for (uint256 i = 0; i < stakeTokens.length; ) {
-            for (uint8 j = 0; j < 3; ) {
-                if (totalStakedByToken_Duration[stakeTokens[i]][j] != 0) {
-                    uint256 durationReward = (tokenPoolReward *
-                        rewardAllocations[j]) / 100;
-                    delete _recentPeriods[stakeTokens[i]][j].rewardPeriods[0];
-                    _recentPeriodsStorage(stakeTokens[i], j, 0)
-                        .rewardsToDistribute = durationReward;
-                    _recentPeriodsStorage(stakeTokens[i], j, 0)
-                        .ifpRewardToDistribute = durationReward;
-                }
+            stakedAmount = totalStakedByToken_Duration[stakeTokens[i]][0] +
+                totalStakedByToken_Duration[stakeTokens[i]][1] +
+                totalStakedByToken_Duration[stakeTokens[i]][2];
+            if (stakedAmount != 0) {
+                ifpRewardAmount = lendingPool.getNamedBalance(
+                    "ifp",
+                    stakeTokens[i]
+                ) + ifpRemainByToken;
 
-                unchecked {
-                    ++j;
-                }
+                // Clear the current period ==> still previous period
+                // But it will be when _currentPeriod is chainged at the end of the function
+                delete _recentPeriods[stakeTokens[i]].rewardPeriods[1];
+                // Set inflation rewards for the current period
+                _recentPeriodsStorage(stakeTokens[i], 1)
+                    .rewardsToDistribute = rewardRemainByToken;
+                // Set ifp rewards for the current period
+                _recentPeriodsStorage(stakeTokens[i], 1)
+                    .ifpRewardToDistribute = ifpRewardAmount;
             }
 
             unchecked {
                 ++i;
             }
         }
+
+        _currentPeriod = (_currentPeriod + PERIOD_LENGTH - 1) % PERIOD_LENGTH;
     }
 
     function _calculatePoolRollOver()
         internal
         view
         virtual
-        returns (uint256 poolRewardRemained)
+        returns (uint256 poolRewardRemained, uint256 ifpPoolRewardRemained)
     {
         for (uint256 i = 0; i < stakeTokens.length; ) {
-            poolRewardRemained += _calculateInflationRollOver(stakeTokens[i]);
+            poolRewardRemained +=
+                _recentPeriodsStorage(stakeTokens[i], 0).rewardsToDistribute -
+                _recentPeriodsStorage(stakeTokens[i], 0).rewardsStaked;
+            ifpPoolRewardRemained +=
+                _recentPeriodsStorage(stakeTokens[i], 0).ifpRewardToDistribute -
+                _recentPeriodsStorage(stakeTokens[i], 0).ifpRewardClaimed;
             unchecked {
                 ++i;
             }
         }
     }
 
-    function _calculateInflationRollOver(
+    function getInflationRollOver(
         address _token
-    ) internal view virtual returns (uint256 inflationRewardRemained) {
+    ) external view virtual returns (uint256 inflationRewardRemained, uint256 ifpRewardRemained) {
         for (uint8 j = 0; j < 3; ) {
             inflationRewardRemained +=
-                _recentPeriodsStorage(_token, j, 0).rewardsToDistribute -
-                _recentPeriodsStorage(_token, j, 1).rewardsClaimed;
+                _recentPeriodsStorage(_token, 0).rewardsToDistribute -
+                _recentPeriodsStorage(_token, 0).rewardsStaked;
+            ifpRewardRemained +=
+                _recentPeriodsStorage(_token, 0).ifpRewardToDistribute -
+                _recentPeriodsStorage(_token, 0).ifpRewardClaimed;
             unchecked {
                 ++j;
             }
