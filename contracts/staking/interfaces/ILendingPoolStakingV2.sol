@@ -11,6 +11,7 @@ interface ILendingPoolStakingV2 {
     error NoRewardsAvailable();
     error StakeNotFound();
     error NotOwned();
+    error NoStakeYet();
 
     enum StakeStatus {
         DEFAULT, // Not staked, only applicable to escrowed reward
