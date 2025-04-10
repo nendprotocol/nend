@@ -250,16 +250,12 @@ contract LendingPoolStakingV2 is
         uint256[3] memory _amounts;
         _amounts[_durationId] = _amount;
 
-        // Add to user's stakes
-        uint256 userStakeIdx = userStakesCount[msg.sender] + 1;
-
         uint256 stakeId = nextStakeId;
         nextStakeId++;
 
         // Create the stake
-        StakingLib._createAndMapStake(
+        uint256 userStakeIdx = StakingLib._createAndMapStake(
             userStakesById[msg.sender],
-            userStakeIdx,
             msg.sender,
             _amounts,
             _token,
@@ -324,16 +320,12 @@ contract LendingPoolStakingV2 is
             }
         }
 
-        // Add to user's stakes
-        uint256 userStakeIdx = userStakesCount[_staker] + 1;
-
         uint256 stakeId = nextStakeId;
         nextStakeId++;
 
         // Create the escrow stake - direct initialization avoids memory/storage copying
-        StakingLib._createAndMapStake(
+        uint256 userStakeIdx = StakingLib._createAndMapStake(
             userStakesById[_staker],
-            userStakeIdx,
             _staker,
             _amounts,
             nend,
@@ -645,17 +637,17 @@ contract LendingPoolStakingV2 is
             uint256 fromUserIndex = getUserStakeIndex(tokenId);
             if (fromUserIndex > 0) {
                 // Get the stake
-                Stake memory stake = userStakesById[from][fromUserIndex];
+                Stake memory stakeCopy = userStakesById[from][fromUserIndex];
 
                 // Update stake owner
-                stake.staker = to;
+                stakeCopy.staker = to;
 
                 // Remove stake from original owner using extracted function
                 _removeUserStake(from, tokenId, fromUserIndex);
 
                 // Add to new owner
                 uint256 toUserIndex = userStakesCount[to] + 1;
-                userStakesById[to][toUserIndex] = stake;
+                userStakesById[to][toUserIndex] = stakeCopy;
                 StakingLib.setStakeMapping(
                     _stakeEntries,
                     _userIndexToId,
@@ -671,7 +663,7 @@ contract LendingPoolStakingV2 is
     function _emitStaked(
         uint256 _stakeId,
         ILendingPoolStakingV2.Stake memory _stake
-    ) public {
+    ) private {
         emit Staked(
             _stakeId,
             _stake.staker,
