@@ -60,7 +60,7 @@ contract LendingPoolStakingV2 is
     // public function distributeInflationRewards() call the
     // current weeks inflated reward. [1] is last weeks feeperiod
     // library StakingLib has the same constant
-    uint8 public constant REWARD_PERIOD_LENGTH = 2; 
+    uint8 public constant REWARD_PERIOD_LENGTH = 2;
     // current reward period
     uint256 private _currentPeriod;
     // fee period
@@ -273,6 +273,8 @@ contract LendingPoolStakingV2 is
         );
 
         totalStakedByToken_Duration[_token][_durationId] += _amount;
+
+        _emitStaked(stakeId, userStakesById[msg.sender][userStakeIdx]);
     }
 
     function getStakeByUserIndex(
@@ -350,8 +352,10 @@ contract LendingPoolStakingV2 is
             nend,
             _amounts
         );
-    }
 
+        // Emit the event
+        _emitStaked(stakeId, userStakesById[_staker][userStakeIdx]);
+    }
 
     function distributeInflationRewards(
         uint256 _inflationReward
@@ -359,10 +363,7 @@ contract LendingPoolStakingV2 is
         if (msg.sender != nend) revert Unauthorized();
 
         (uint256 toDistributeReward, uint256 ifptoDistributeReward) = StakingLib
-            .calculatePoolRollOver(
-                _recentPeriods,
-                _currentPeriod
-            );
+            .calculatePoolRollOver(_recentPeriods, _currentPeriod);
         toDistributeReward += _inflationReward;
 
         for (uint256 i = 0; i < stakeTokens.length; ) {
@@ -454,7 +455,8 @@ contract LendingPoolStakingV2 is
                 _userClaimedForPeriod,
                 period,
                 _token,
-                nend
+                nend,
+                msg.sender
             );
 
         // Create an escrow stake for the inflation reward
@@ -664,6 +666,21 @@ contract LendingPoolStakingV2 is
                 userStakesCount[to]++;
             }
         }
+    }
+
+    function _emitStaked(
+        uint256 _stakeId,
+        ILendingPoolStakingV2.Stake memory _stake
+    ) public {
+        emit Staked(
+            _stakeId,
+            _stake.staker,
+            _stake.token,
+            _stake.start,
+            _stake.end,
+            _stake.amountsPerDuration,
+            _stake.isEscrow
+        );
     }
 
     function _authorizeUpgrade(

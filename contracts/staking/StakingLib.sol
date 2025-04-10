@@ -39,7 +39,7 @@ library StakingLib {
 
     function migrateStake(
         mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakes,
-        mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakesByIdx,
+        mapping(uint256 => ILendingPoolStakingV2.Stake) storage userSpecificStakes,
         mapping(address => uint256) storage userStakesCount,
         mapping(uint256 => ILendingPoolStakingV2.StakeMappingEntry) storage _stakeEntries,
         mapping(address => mapping(uint256 => uint256)) storage _userIndexToId,
@@ -59,7 +59,7 @@ library StakingLib {
             
             uint256 userStakeIdx = userStakesCount[stake.staker] + 1;
             stake.token = stake.isEscrow ? nend : stake.token;
-            stakesByIdx[userStakeIdx] = stake;
+            userSpecificStakes[userStakeIdx] = stake;
             
             // Create mapping entry
             setStakeMapping(
@@ -81,7 +81,7 @@ library StakingLib {
      * @dev Moved entirely from main contract to reduce bytecode
      */
     function getClaimableRewards(
-        mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakesByIdx,
+        mapping(uint256 => ILendingPoolStakingV2.Stake) storage userSpecificStakes,
         uint256 userStakeCount,
         ILendingPoolStakingV2.RewardPeriod[2] storage _recentPeriods,
         mapping(address => mapping(uint64 => bool))
@@ -119,7 +119,7 @@ library StakingLib {
 
         // Get user's total stake for this token
         uint256 userStakedAmount = calculateUserStakesTotal(
-            stakesByIdx,
+            userSpecificStakes,
             userStakeCount,
             _token,
             nend
@@ -145,7 +145,7 @@ library StakingLib {
      * @dev Moved entirely from main contract to reduce bytecode
      */
     function processClaim(
-        mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakesByIdx,
+        mapping(uint256 => ILendingPoolStakingV2.Stake) storage userSpecificStakes,
         mapping(address => mapping(uint8 => uint256))
             storage totalStakedByToken_Duration,
         uint256 userStakeCount,
@@ -153,13 +153,14 @@ library StakingLib {
             storage _userClaimedForPeriod,
         ILendingPoolStakingV2.RewardPeriod storage period,
         address _token,
-        address nend
+        address nend, 
+        address user
     )
         public
         returns (uint256 inflationReward, uint256 ifpReward, uint64 periodId)
     {
         // Check if already claimed
-        if (_userClaimedForPeriod[msg.sender][period.periodId]) {
+        if (_userClaimedForPeriod[user][period.periodId]) {
             revert ILendingPoolStakingV2.AlreadyClaimed();
         }
 
@@ -176,7 +177,7 @@ library StakingLib {
 
         // Get user's total stake for this token
         uint256 userStakeAmount = calculateUserStakesTotal(
-            stakesByIdx,
+            userSpecificStakes,
             userStakeCount,
             _token,
             nend
@@ -205,7 +206,7 @@ library StakingLib {
         periodId = period.periodId;
 
         // Mark as claimed for this period
-        _userClaimedForPeriod[msg.sender][period.periodId] = true;
+        _userClaimedForPeriod[user][period.periodId] = true;
 
         return (inflationReward, ifpReward, periodId);
     }
@@ -344,14 +345,14 @@ library StakingLib {
      * @notice Calculates total staked amount by a user for a specific token
      */
     function calculateUserStakesTotal(
-        mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakesByIdx,
+        mapping(uint256 => ILendingPoolStakingV2.Stake) storage userSpecificStakes,
         uint256 userStakeCount,
         address _token,
         address nend
     ) public view returns (uint256 totalAmount) {
         for (uint256 i = 0; i < userStakeCount; ) {
             // Using storage to avoid unnecessary copying
-            ILendingPoolStakingV2.Stake storage stake = stakesByIdx[i + 1];
+            ILendingPoolStakingV2.Stake storage stake = userSpecificStakes[i + 1];
 
             // Only include active stakes for the specific token
             if (stake.stakeStatus == ILendingPoolStakingV2.StakeStatus.STAKED) {
@@ -462,7 +463,7 @@ library StakingLib {
     }
 
     function removeUserStake(
-        mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakesByIdx,
+        mapping(uint256 => ILendingPoolStakingV2.Stake) storage userSpecificStakes,
         mapping(uint256 => ILendingPoolStakingV2.StakeMappingEntry)
             storage _stakeEntries,
         mapping(address => mapping(uint256 => uint256)) storage _userIndexToId,
@@ -473,19 +474,20 @@ library StakingLib {
     ) public {
         // Get the last stake index for this user
         uint256 lastUserStakeIdx = userStakesCount[_user];
+        uint256 lastStakeId = _stakeId;
 
         // If not the last element, swap with the last element
         if (_userIndex != lastUserStakeIdx) {
             // Get the last stake
-            ILendingPoolStakingV2.Stake storage lastStake = stakesByIdx[
+            ILendingPoolStakingV2.Stake storage lastStake = userSpecificStakes[
                 lastUserStakeIdx
             ];
             //
             // Get last stake ID using the reverse mapping directly
-            uint256 lastStakeId = _userIndexToId[_user][lastUserStakeIdx];
+            lastStakeId = _userIndexToId[_user][lastUserStakeIdx];
 
             // Move last stake to current position
-            stakesByIdx[_userIndex] = lastStake;
+            userSpecificStakes[_userIndex] = lastStake;
 
             // Update the stake ID mapping
             setStakeMapping(
@@ -498,12 +500,12 @@ library StakingLib {
         }
 
         // Clean up
-        delete stakesByIdx[lastUserStakeIdx];
+        delete userSpecificStakes[lastUserStakeIdx];
         if (_stakeEntries[lastUserStakeIdx].exists) {
             delete _userIndexToId[_stakeEntries[lastUserStakeIdx].user][
                 _stakeEntries[lastUserStakeIdx].userIndex
             ];
-            delete _stakeEntries[_stakeId];
+            delete _stakeEntries[lastStakeId];
         }
         userStakesCount[_user]--;
     }
@@ -523,7 +525,7 @@ library StakingLib {
 
 
     function _createAndMapStake(
-        mapping(uint256 => ILendingPoolStakingV2.Stake) storage stakesByIdx,
+        mapping(uint256 => ILendingPoolStakingV2.Stake) storage userSpecificStakes,
         uint256 userStakeIdx,
         address _staker,
         uint256[3] memory _amounts,
@@ -539,7 +541,7 @@ library StakingLib {
     ) internal returns (uint256) {
         // Directly initialize the stake in storage
         // This avoids copying from memory to storage
-        ILendingPoolStakingV2.Stake storage newStake = stakesByIdx[userStakeIdx];
+        ILendingPoolStakingV2.Stake storage newStake = userSpecificStakes[userStakeIdx];
         setStakeData(
             newStake,
             _staker,
@@ -550,7 +552,7 @@ library StakingLib {
             testing
         );
 
-        stakesByIdx[userStakesCount[_staker]] = newStake;
+        // userSpecificStakes[userStakesCount[_staker]] = newStake;
         userStakesCount[_staker]++;
 
         // Map the stake ID to the user and index
@@ -562,24 +564,7 @@ library StakingLib {
             userStakesCount[_staker]
         );
 
-        _emitStaked(stakeId, newStake);
-
         return stakeId;
-    }
-
-    function _emitStaked(
-        uint256 _stakeId,
-        ILendingPoolStakingV2.Stake memory _stake
-    ) public {
-        emit Staked(
-            _stakeId,
-            _stake.staker,
-            _stake.token,
-            _stake.start,
-            _stake.end,
-            _stake.amountsPerDuration,
-            _stake.isEscrow
-        );
     }
 
 }
