@@ -62,7 +62,7 @@ contract LendingPoolStakingV2 is
     // library StakingLib has the same constant
     uint8 public constant REWARD_PERIOD_LENGTH = 2;
     // current reward period
-    uint256 private _currentPeriod;
+    uint256 private _currentPeriodIdx;
     // fee period
     RewardPeriod[REWARD_PERIOD_LENGTH] private _recentPeriods;
     // V3 storage
@@ -74,7 +74,7 @@ contract LendingPoolStakingV2 is
     mapping(address => mapping(uint256 => uint256)) private _userIndexToId; // user => userIndex => stakeId
 
     // Add this at the contract level
-    bool public stakesDeprecated = false;
+    bool public stakesDeprecated;
 
     // Add to contract header
     /**
@@ -155,12 +155,22 @@ contract LendingPoolStakingV2 is
         emit BatchMigrationCompleted(startId, endId);
     }
 
+    function getCurrentPeriodId() external view returns (uint256) {
+        return _recentPeriodsStorage(0).periodId;
+    }
+
+    function setStakesDeprecated(
+        bool _deprecated
+    ) external virtual onlyRole("admin") {
+        stakesDeprecated = _deprecated;
+    }
+
     function _recentPeriodsStorage(
         uint256 index
     ) internal view returns (RewardPeriod storage) {
         return
             _recentPeriods[
-                (_currentPeriod + index) % uint256(REWARD_PERIOD_LENGTH)
+                (_currentPeriodIdx + index) % uint256(REWARD_PERIOD_LENGTH)
             ];
     }
 
@@ -206,6 +216,8 @@ contract LendingPoolStakingV2 is
         stakeDurations = [1 weeks, 4 weeks, 12 weeks];
         rewardAllocations = [20, 30, 50];
 
+        stakesDeprecated = false;
+
         _recentPeriodsStorage(0).periodId = 1;
 
         __ERC721_init("Escrowed Asset Bond", "EAB");
@@ -250,19 +262,21 @@ contract LendingPoolStakingV2 is
         uint256[3] memory _amounts;
         _amounts[_durationId] = _amount;
 
-        uint256 stakeId = nextStakeId;
-        nextStakeId++;
+        uint256 stakeId = nextStakeId++;
+        uint256 userStakeIdx = ++userStakesCount[msg.sender];
+        // Directly initialize the stake in storage
+        Stake storage newStake = userStakesById[msg.sender][userStakeIdx];
 
         // Create the stake
-        uint256 userStakeIdx = StakingLib._createAndMapStake(
-            userStakesById[msg.sender],
+        StakingLib._createAndMapStake(
+            newStake,
             msg.sender,
             _amounts,
             _token,
             stakeDurations[_durationId],
             false,
             stakeId,
-            userStakesCount,
+            userStakeIdx,
             _stakeEntries,
             _userIndexToId,
             testing
@@ -309,8 +323,9 @@ contract LendingPoolStakingV2 is
 
     function _createEscrowStake(
         address _staker,
-        uint256 _rewardAmount
-    ) internal {
+        uint256 _rewardAmount,
+        uint256 _ifpReward
+    ) internal returns (uint256 stakeId) {
         uint256[3] memory _amounts;
         // Distribute the reward amount across durations according to your allocation policy
         for (uint8 i = 0; i < 3; ) {
@@ -320,23 +335,29 @@ contract LendingPoolStakingV2 is
             }
         }
 
-        uint256 stakeId = nextStakeId;
+        stakeId = nextStakeId;
         nextStakeId++;
+        uint256 userStakeIdx = ++userStakesCount[_staker];
+        // Directly initialize the stake in storage
+        Stake storage newStake = userStakesById[_staker][userStakeIdx];
 
         // Create the escrow stake - direct initialization avoids memory/storage copying
-        uint256 userStakeIdx = StakingLib._createAndMapStake(
-            userStakesById[_staker],
+        StakingLib._createAndMapStake(
+            newStake,
             _staker,
             _amounts,
             nend,
             escrowLockPeriod,
             true,
             stakeId,
-            userStakesCount,
+            userStakeIdx,
             _stakeEntries,
             _userIndexToId,
             testing
         );
+
+        // set IFP reward
+        newStake.rewardAllocated = _ifpReward;
 
         // Update the total staked amount for the escrowed stake
         StakingLib._saveStakedRewards(
@@ -352,25 +373,33 @@ contract LendingPoolStakingV2 is
     function distributeInflationRewards(
         uint256 _inflationReward
     ) external virtual override {
-        if (msg.sender != nend) revert Unauthorized();
+        if (!testing && msg.sender != nend) revert Unauthorized();
 
-        (uint256 toDistributeReward, uint256 ifptoDistributeReward) = StakingLib
-            .calculatePoolRollOver(_recentPeriods, _currentPeriod);
+        // get the pool roll over of the current period
+        (
+            uint256 toDistributeReward,
+            uint256[] memory ifptoDistributeReward
+        ) = StakingLib.calculatePoolRollOver(
+                _recentPeriods[_currentPeriodIdx],
+                stakeTokens
+            );
         toDistributeReward += _inflationReward;
+
+        // mapping(address => uint256) ifptoDistributeReward;
 
         for (uint256 i = 0; i < stakeTokens.length; ) {
             // Get the staked amount for the token
-            uint256 stakedTokenAmt = StakingLib.getTotalStakedForToken(
+            uint256 stakedTokenAmt = StakingLib.getTotalStakesForToken(
                 totalStakedByToken_Duration,
                 stakeTokens[i]
             );
             if (stakedTokenAmt != 0) {
                 // Get the accrued IFP token balance for the token
-                uint ifpAccredTokenAmt = lendingPool.getNamedBalance(
+                uint256 ifpAccredTokenAmt = lendingPool.getNamedBalance(
                     "ifp",
                     stakeTokens[i]
                 );
-                ifptoDistributeReward += ifpAccredTokenAmt;
+                ifptoDistributeReward[i] += ifpAccredTokenAmt;
                 // subtract the IFP token balance from the pool for backward compatibility
                 lendingPool.namedBalanceSpend(
                     "ifp",
@@ -390,27 +419,18 @@ contract LendingPoolStakingV2 is
             }
         }
 
-        _closeCurrentPeriod(toDistributeReward, ifptoDistributeReward);
-
-        emit InflationRewardDistributed();
-    }
-
-    function _closeCurrentPeriod(
-        uint256 toDistributeReward,
-        uint ifptoDistributeReward
-    ) internal virtual {
-        _currentPeriod = StakingLib.closeCurrentPeriod(
+        // set inflation and IFP rewards to the current period and get the new current period id
+        _currentPeriodIdx = StakingLib.closeCurrentPeriod(
             _recentPeriods,
-            _currentPeriod,
+            _currentPeriodIdx,
             toDistributeReward,
-            ifptoDistributeReward
+            ifptoDistributeReward,
+            stakeTokens
         );
 
         emit NewPeriodStarted(
             _recentPeriodsStorage(0).periodId,
-            _recentPeriodsStorage(0).startTime,
-            toDistributeReward,
-            ifptoDistributeReward
+            _recentPeriodsStorage(0).startTime
         );
     }
 
@@ -425,7 +445,7 @@ contract LendingPoolStakingV2 is
                 _recentPeriods,
                 _userClaimedForPeriod,
                 totalStakedByToken_Duration,
-                _currentPeriod,
+                _currentPeriodIdx,
                 nend,
                 _user,
                 _token
@@ -433,12 +453,12 @@ contract LendingPoolStakingV2 is
     }
 
     function claim(address _token) external {
-        // Get the previous period (the claimable one)
-        RewardPeriod storage period = _recentPeriodsStorage(1);
+        // Get the current period (the claimable one)
+        RewardPeriod storage period = _recentPeriodsStorage(0);
 
         (
-            uint256 inflationReward,
-            uint256 ifpReward,
+            uint256 userInflationReward,
+            uint256 userIfpReward,
             uint64 periodId
         ) = StakingLib.processClaim(
                 userStakesById[msg.sender],
@@ -452,53 +472,54 @@ contract LendingPoolStakingV2 is
             );
 
         // Create an escrow stake for the inflation reward
-        _createEscrowStake(msg.sender, inflationReward);
-        IERC20(_token).transfer(msg.sender, ifpReward);
+        uint256 stakeId = _createEscrowStake(
+            msg.sender,
+            userInflationReward,
+            userIfpReward
+        );
+        IERC20(_token).transfer(msg.sender, userIfpReward);
 
         emit RewardsClaimed(
+            stakeId,
             msg.sender,
             _token,
-            inflationReward,
-            ifpReward,
+            userInflationReward,
+            userIfpReward,
             periodId
         );
     }
 
-    function _calculateInflationRollOver()
-        internal
-        view
-        virtual
-        returns (uint256 inflationRewardRemained)
-    {
-        inflationRewardRemained =
-            (_recentPeriodsStorage(_currentPeriod).rewardsToDistribute -
-                _recentPeriodsStorage(_currentPeriod).rewardsStaked) /
-            stakeTokenCount;
-    }
-
-    function hasPendingNonInflationRewards()
+    function getPoolRollOver()
         external
         view
-        virtual
-        override
-        returns (bool)
+        returns (uint256 inflationRewardRemained)
     {
-        for (uint256 i = 0; i < stakeTokens.length; ) {
-            uint256 reward = lendingPool.getNamedBalance("ifp", stakeTokens[i]);
-            uint256 stakedAmount = StakingLib.getTotalStakedForToken(
-                totalStakedByToken_Duration,
-                stakeTokens[i]
+        (inflationRewardRemained, ) = StakingLib.calculatePoolRollOver(
+            _recentPeriods[_currentPeriodIdx],
+            stakeTokens
+        );
+    }
+
+    // function getToTalStakedForToken(
+    //     address _token
+    // ) external view returns (uint256) {
+    //     return StakingLib.getTotalStakesForToken(
+    //         totalStakedByToken_Duration,
+    //         _token
+    //     );
+    // }
+
+    function getUserStakesTotal(
+        address _user,
+        address _token
+    ) external view returns (uint256) {
+        return
+            StakingLib.calculateUserStakesTotal(
+                userStakesById[_user],
+                userStakesCount[_user],
+                _token,
+                nend
             );
-
-            if (reward > 0 && stakedAmount > 0) {
-                return true;
-            }
-            unchecked {
-                ++i;
-            }
-        }
-
-        return false;
     }
 
     function issueEAB(uint256 _stakeId) external virtual {
@@ -535,7 +556,7 @@ contract LendingPoolStakingV2 is
         // Use library to handle most of the logic
         (
             uint256 stakedAmount,
-            uint256 rewardAmount,
+            // uint256 rewardAmount,
             address tokenToUse,
             bool needsBurn
         ) = StakingLib.processUnstake(
@@ -557,9 +578,10 @@ contract LendingPoolStakingV2 is
             );
         }
 
-        if (rewardAmount > 0) {
-            IERC20(tokenToUse).transfer(msg.sender, rewardAmount);
-        }
+        // already handled in cliam
+        // if (rewardAmount > 0) {
+        //     IERC20(tokenToUse).transfer(msg.sender, rewardAmount);
+        // }
 
         // Handle events and burns
         emit StakeStatusChanged(_stakeId, StakeStatus.FULFILLED);
@@ -636,10 +658,10 @@ contract LendingPoolStakingV2 is
             // Find the user index for the token
             uint256 fromUserIndex = getUserStakeIndex(tokenId);
             if (fromUserIndex > 0) {
-                // Get the stake
+                // Get the stake into memory first
                 Stake memory stakeCopy = userStakesById[from][fromUserIndex];
 
-                // Update stake owner
+                // Update stake owner in memory
                 stakeCopy.staker = to;
 
                 // Remove stake from original owner using extracted function

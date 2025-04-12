@@ -25,7 +25,7 @@ library StakingLib {
         bool isActiveStakeToken,
         uint8 durationId,
         uint256 amount
-    ) public pure {
+    ) external pure {
         if (amount == 0) {
             revert ILendingPoolStakingV2.InvalidArgument(
                 "Amount cannot be zero"
@@ -49,7 +49,7 @@ library StakingLib {
         mapping(address => mapping(uint256 => uint256)) storage _userIndexToId,
         uint256 stakeId,
         address nend
-    ) public returns (bool migrated) {
+    ) external returns (bool migrated) {
         ILendingPoolStakingV2.Stake storage stake = stakes[stakeId];
 
         if (
@@ -61,20 +61,30 @@ library StakingLib {
                 return false;
             }
 
-            uint256 userStakeIdx = userStakesCount[stake.staker] + 1;
-            stake.token = stake.isEscrow ? nend : stake.token;
-            userSpecificStakes[userStakeIdx] = stake;
+            // Create a memory copy of the stake
+            ILendingPoolStakingV2.Stake memory stakeCopy = stakes[stakeId];
+
+            // Modify the token if it's an escrow stake
+            if (stakeCopy.isEscrow) {
+                stakeCopy.token = nend;
+            }
+
+            // Get the next available user stake index
+            uint256 userStakeIdx = userStakesCount[stakeCopy.staker] + 1;
+
+            // Store the modified copy, not the original storage reference
+            userSpecificStakes[userStakeIdx] = stakeCopy;
 
             // Create mapping entry
             setStakeMapping(
                 _stakeEntries,
                 _userIndexToId,
                 stakeId,
-                stake.staker,
+                stakeCopy.staker,
                 userStakeIdx
             );
 
-            userStakesCount[stake.staker]++;
+            userStakesCount[stakeCopy.staker]++;
             return true;
         }
         return false;
@@ -93,17 +103,15 @@ library StakingLib {
             storage _userClaimedForPeriod,
         mapping(address => mapping(uint8 => uint256))
             storage totalStakedByToken_Duration,
-        uint256 _currentPeriod,
+        uint256 _currentPeriodId,
         address nend,
         address _user,
         address _token
-    ) public view returns (uint256 inflationReward, uint256 ifpReward) {
-        // Get the previous period (the one users can claim from)
-        uint256 idx = 1; // Previous period
-        uint256 periodIndex = (_currentPeriod + idx) %
-            uint256(REWARD_PERIOD_LENGTH);
+    ) external view returns (uint256 inflationReward, uint256 ifpReward) {
+        // Get the current period (the one users can claim from)
+        //
         ILendingPoolStakingV2.RewardPeriod storage period = _recentPeriods[
-            periodIndex
+            _currentPeriodId
         ];
 
         // If the user already claimed for this period, return zeros
@@ -112,7 +120,7 @@ library StakingLib {
         }
 
         // Get total staked amount for this token
-        uint256 totalTokenStaked = getTotalStakedForToken(
+        uint256 totalTokenStaked = getTotalStakesForToken(
             totalStakedByToken_Duration,
             _token
         );
@@ -139,7 +147,8 @@ library StakingLib {
             (period.rewardsToDistribute * userStakedAmount) /
             totalTokenStaked;
         ifpReward =
-            (period.ifpRewardToDistribute * userStakedAmount) /
+            (period.ifpRewardPeriod[_token].rewardToDistribute *
+                userStakedAmount) /
             totalTokenStaked;
 
         return (inflationReward, ifpReward);
@@ -162,7 +171,7 @@ library StakingLib {
         address nend,
         address user
     )
-        public
+        external
         returns (uint256 inflationReward, uint256 ifpReward, uint64 periodId)
     {
         // Check if already claimed
@@ -171,7 +180,7 @@ library StakingLib {
         }
 
         // Get total staked amount for this token
-        uint256 totalTokenStakeAmount = getTotalStakedForToken(
+        uint256 totalTokenStakeAmount = getTotalStakesForToken(
             totalStakedByToken_Duration,
             _token
         );
@@ -198,7 +207,8 @@ library StakingLib {
             (period.rewardsToDistribute * userStakeAmount) /
             totalTokenStakeAmount;
         ifpReward =
-            (period.ifpRewardToDistribute * userStakeAmount) /
+            (period.ifpRewardPeriod[_token].rewardToDistribute *
+                userStakeAmount) /
             totalTokenStakeAmount;
 
         if (inflationReward == 0 && ifpReward == 0) {
@@ -207,7 +217,7 @@ library StakingLib {
 
         // Update period totals
         period.rewardsStaked += inflationReward;
-        period.ifpRewardClaimed += ifpReward;
+        period.ifpRewardPeriod[_token].rewardClaimed += ifpReward;
 
         periodId = period.periodId;
 
@@ -228,10 +238,10 @@ library StakingLib {
         address nend,
         address msgSender
     )
-        public
+        external
         returns (
             uint256 stakedAmount,
-            uint256 rewardAmount,
+            // uint256 rewardAmount,
             address tokenToUse,
             bool needsBurn
         )
@@ -258,7 +268,7 @@ library StakingLib {
         }
 
         // Get reward and token
-        rewardAmount = stake.rewardAllocated;
+        // rewardAmount = stake.rewardAllocated;
         tokenToUse = stake.isEscrow ? nend : stake.token;
 
         // Update totals if staked
@@ -285,7 +295,7 @@ library StakingLib {
             stake.escrowStatus = ILendingPoolStakingV2.EscrowStatus.CLAIMED;
         }
 
-        return (stakedAmount, rewardAmount, tokenToUse, needsBurn);
+        return (stakedAmount, /* rewardAmount, */ tokenToUse, needsBurn);
     }
 
     /**
@@ -293,58 +303,44 @@ library StakingLib {
      */
     function closeCurrentPeriod(
         ILendingPoolStakingV2.RewardPeriod[2] storage _recentPeriods,
-        uint256 _currentPeriod,
-        uint256 toDistributeReward,
-        uint256 ifptoDistributeReward
-    ) public returns (uint256 newCurrentPeriod) {
-        // Logic for period closing
-        uint256 nextCalcIndex = (_currentPeriod + 1) %
-            uint256(REWARD_PERIOD_LENGTH);
-
-        // Clear old data
-        delete _recentPeriods[nextCalcIndex];
-
-        // Set up new period
-        _recentPeriods[nextCalcIndex].periodId =
-            _recentPeriods[_currentPeriod].periodId +
-            1;
-        _recentPeriods[nextCalcIndex].startTime = uint64(block.timestamp);
-        _recentPeriods[nextCalcIndex].rewardsToDistribute = toDistributeReward;
-        _recentPeriods[nextCalcIndex]
-            .ifpRewardToDistribute = ifptoDistributeReward;
-
-        // Update current period
+        uint256 _currentPeriodId,
+        uint256 _toDistributeReward,
+        uint[] memory _ifptoDistributeReward,
+        address[] memory _tokens
+    ) external returns (uint256 newCurrentPeriod) {
+        // get new current period index(= previous period != current period)
+        // when old current period is 0, next period is 1
+        // when old current period is 1, next period is 0
         newCurrentPeriod =
-            (_currentPeriod + REWARD_PERIOD_LENGTH - 1) %
+            (_currentPeriodId + REWARD_PERIOD_LENGTH - 1) %
             REWARD_PERIOD_LENGTH;
 
+        // Set up new period
+        _recentPeriods[newCurrentPeriod].periodId =
+            _recentPeriods[_currentPeriodId].periodId +
+            1;
+        // Set up new period start time
+        _recentPeriods[newCurrentPeriod].startTime = uint64(block.timestamp);
+
+        // Set up new inflation rewards
+        _recentPeriods[newCurrentPeriod]
+            .rewardsToDistribute = _toDistributeReward;
+        _recentPeriods[newCurrentPeriod].rewardsStaked = 0;
+
+        // Set up IFP rewards
+        for (uint8 i = 0; i < _tokens.length; ) {
+            _recentPeriods[newCurrentPeriod]
+                .ifpRewardPeriod[_tokens[i]]
+                .rewardToDistribute = _ifptoDistributeReward[i];
+            _recentPeriods[newCurrentPeriod]
+                .ifpRewardPeriod[_tokens[i]]
+                .rewardClaimed = 0;
+            unchecked {
+                ++i;
+            }
+        }
+
         return (newCurrentPeriod);
-    }
-
-    /**
-     * @notice Create escrow stake with complete logic
-     */
-    function setStakeData(
-        ILendingPoolStakingV2.Stake storage stake,
-        address _staker,
-        uint256[3] memory _amounts,
-        address _token,
-        uint48 lockPeriod,
-        bool isEscrow,
-        bool testing
-    ) public {
-        // Get lock period for escrow
-        uint48 start = uint48(block.timestamp);
-
-        stake.staker = _staker;
-        stake.token = _token;
-        stake.start = start;
-        stake.end = start + lockPeriod / (testing ? 1008 : 1);
-        stake.amountsPerDuration = _amounts;
-        stake.rewardAllocated = 0;
-        stake.isEscrow = isEscrow;
-        stake.escrowStatus = ILendingPoolStakingV2.EscrowStatus.DEFAULT;
-        stake.stakeStatus = ILendingPoolStakingV2.StakeStatus.STAKED;
     }
 
     /**
@@ -353,11 +349,11 @@ library StakingLib {
     function calculateUserStakesTotal(
         mapping(uint256 => ILendingPoolStakingV2.Stake)
             storage userSpecificStakes,
-        uint256 stakesCount,
+        uint256 userStakesCount,
         address _token,
         address nend
     ) public view returns (uint256 totalAmount) {
-        for (uint256 i = 0; i < stakesCount; ) {
+        for (uint256 i = 0; i < userStakesCount; ) {
             // Using storage to avoid unnecessary copying
             ILendingPoolStakingV2.Stake storage stake = userSpecificStakes[
                 i + 1
@@ -365,8 +361,12 @@ library StakingLib {
 
             // Only include active stakes for the specific token
             if (stake.stakeStatus == ILendingPoolStakingV2.StakeStatus.STAKED) {
-                bool isMatchingToken = stake.token == _token ||
-                    (stake.isEscrow && _token == nend);
+                // Check if the token matches:
+                // 1. For escrow stakes, we use nend token
+                // 2. For regular stakes, use the actual token
+                bool isMatchingToken = stake.isEscrow
+                    ? (_token == nend)
+                    : (stake.token == _token);
 
                 if (isMatchingToken) {
                     // Sum up all durations in unchecked block
@@ -388,7 +388,7 @@ library StakingLib {
     /**
      * @notice Gets total staked amount for a token across all durations
      */
-    function getTotalStakedForToken(
+    function getTotalStakesForToken(
         mapping(address => mapping(uint8 => uint256))
             storage totalStakedByToken_Duration,
         address _token
@@ -405,24 +405,34 @@ library StakingLib {
      * @notice Calculates pool rollover amounts from previous period
      */
     function calculatePoolRollOver(
-        ILendingPoolStakingV2.RewardPeriod[2] storage _recentPeriods,
-        uint256 _currentPeriod
+        ILendingPoolStakingV2.RewardPeriod storage _currentPeriod,
+        address[] memory _tokens
     )
-        public
+        external
         view
-        returns (uint256 poolRewardRemained, uint256 ifpPoolRewardRemained)
+        returns (
+            uint256 poolRewardRemained,
+            uint256[] memory ifpPoolRewardRemained
+        )
     {
-        // Get the storage slot for the current period
-        uint256 idx = (_currentPeriod + 0) % uint256(REWARD_PERIOD_LENGTH);
-
         // Calculate remaining rewards
-        poolRewardRemained =
-            _recentPeriods[idx].rewardsToDistribute -
-            _recentPeriods[idx].rewardsStaked;
+        poolRewardRemained = _currentPeriod.rewardsToDistribute <=
+            _currentPeriod.rewardsStaked
+            ? 0
+            : _currentPeriod.rewardsToDistribute - _currentPeriod.rewardsStaked;
 
-        ifpPoolRewardRemained =
-            _recentPeriods[idx].ifpRewardToDistribute -
-            _recentPeriods[idx].ifpRewardClaimed;
+        // Calculate remaining IFP rewards for each token
+        ifpPoolRewardRemained = new uint256[](_tokens.length);
+        for (uint8 i = 0; i < _tokens.length; ) {
+            ifpPoolRewardRemained[i] = _currentPeriod.ifpRewardPeriod[_tokens[i]].rewardToDistribute <=
+                _currentPeriod.ifpRewardPeriod[_tokens[i]].rewardClaimed
+                ? 0
+                : _currentPeriod.ifpRewardPeriod[_tokens[i]].rewardToDistribute -
+                    _currentPeriod.ifpRewardPeriod[_tokens[i]].rewardClaimed;
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /**
@@ -433,7 +443,7 @@ library StakingLib {
         address _token,
         address _to,
         uint256 _amount
-    ) public {
+    ) external {
         bool isNativeCoin = _token == address(0);
 
         if (isNativeCoin) {
@@ -481,10 +491,9 @@ library StakingLib {
         address _user,
         uint256 _stakeId,
         uint256 _userIndex
-    ) public {
+    ) external {
         // Get the last stake index for this user
         uint256 lastUserStakeIdx = userStakesCount[_user];
-        uint256 lastStakeId = _stakeId;
 
         // If not the last element, swap with the last element
         if (_userIndex != lastUserStakeIdx) {
@@ -492,14 +501,14 @@ library StakingLib {
             ILendingPoolStakingV2.Stake storage lastStake = userSpecificStakes[
                 lastUserStakeIdx
             ];
-            //
-            // Get last stake ID using the reverse mapping directly
-            lastStakeId = _userIndexToId[_user][lastUserStakeIdx];
+
+            // Get last stake ID using the reverse mapping
+            uint256 lastStakeId = _userIndexToId[_user][lastUserStakeIdx];
 
             // Move last stake to current position
             userSpecificStakes[_userIndex] = lastStake;
 
-            // Update the stake ID mapping
+            // Update the stake ID mapping for the moved stake
             setStakeMapping(
                 _stakeEntries,
                 _userIndexToId,
@@ -509,16 +518,14 @@ library StakingLib {
             );
         }
 
-        // Clean up
+        // Clean up the last position
         delete userSpecificStakes[lastUserStakeIdx];
-        ILendingPoolStakingV2.StakeMappingEntry
-            storage lastStakeEntry = _stakeEntries[lastStakeId];
-        if (lastStakeEntry.exists) {
-            delete _userIndexToId[lastStakeEntry.user][
-                lastStakeEntry.userIndex
-            ];
-            delete _stakeEntries[lastStakeId];
-        }
+
+        // Delete the original stake mapping
+        delete _userIndexToId[_user][lastUserStakeIdx];
+        delete _stakeEntries[_stakeId];
+
+        // Decrement the user's stake count
         userStakesCount[_user]--;
     }
 
@@ -537,35 +544,31 @@ library StakingLib {
     }
 
     function _createAndMapStake(
-        mapping(uint256 => ILendingPoolStakingV2.Stake)
-            storage userSpecificStakes,
+        ILendingPoolStakingV2.Stake storage newStake,
         address _staker,
         uint256[3] memory _amounts,
         address _token,
         uint48 _duration,
         bool _isEscrow,
         uint256 stakeId,
-        mapping(address => uint256) storage userStakesCount,
+        uint256 userStakeIdx,
         mapping(uint256 => ILendingPoolStakingV2.StakeMappingEntry)
             storage _stakeEntries,
         mapping(address => mapping(uint256 => uint256)) storage _userIndexToId,
         bool testing
     ) internal returns (uint256) {
-        // Add to user's stakes
-        uint256 userStakeIdx = ++userStakesCount[_staker];
-        // Directly initialize the stake in storage
-        ILendingPoolStakingV2.Stake storage newStake = userSpecificStakes[
-            userStakeIdx
-        ];
-        setStakeData(
-            newStake,
-            _staker,
-            _amounts,
-            _token,
-            _duration,
-            _isEscrow,
-            testing
-        );
+        // Get lock period for escrow
+        uint48 start = uint48(block.timestamp);
+
+        newStake.staker = _staker;
+        newStake.token = _token;
+        newStake.start = start;
+        newStake.end = start + _duration / (testing ? 1008 : 1);
+        newStake.amountsPerDuration = _amounts;
+        newStake.rewardAllocated = 0;
+        newStake.isEscrow = _isEscrow;
+        newStake.escrowStatus = ILendingPoolStakingV2.EscrowStatus.DEFAULT;
+        newStake.stakeStatus = ILendingPoolStakingV2.StakeStatus.STAKED;
 
         // Map the stake ID to the user and index
         setStakeMapping(

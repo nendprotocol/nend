@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 interface ILendingPoolStakingV2 {
-
     error InsufficientBalance();
     error InvalidArgument(string details);
     error InvalidState();
@@ -24,14 +23,17 @@ interface ILendingPoolStakingV2 {
         ISSUED,
         CLAIMED
     }
+    struct IFPRewardPeriod {
+        uint256 rewardToDistribute;
+        uint256 rewardClaimed;
+    }
 
     struct RewardPeriod {
         uint64 periodId;
         uint64 startTime;
         uint256 rewardsToDistribute;
         uint256 rewardsStaked;
-        uint256 ifpRewardToDistribute;
-        uint256 ifpRewardClaimed;
+        mapping(address => IFPRewardPeriod) ifpRewardPeriod;
     }
 
     /**
@@ -39,10 +41,10 @@ interface ILendingPoolStakingV2 {
      * @dev Used to optimize storage by consolidating bidirectional mappings
      */
     struct StakeMappingEntry {
-        address user;        // Owner of the stake
-        uint256 userIndex;   // Index in user's personal mapping
-        uint256 stakeId;     // Global stake ID
-        bool exists;         // Flag to confirm entry exists
+        address user; // Owner of the stake
+        uint256 userIndex; // Index in user's personal mapping
+        uint256 stakeId; // Global stake ID
+        bool exists; // Flag to confirm entry exists
     }
 
     struct Stake {
@@ -67,29 +69,26 @@ interface ILendingPoolStakingV2 {
     }
 
     event Staked(
-        uint256 stakeId,
-        address staker,
-        address token,
+        uint256 indexed stakeId,
+        address indexed staker,
+        address indexed token,
         uint48 start,
         uint48 end,
         uint256[3] amountsPerDuration,
         bool isEscrow
     );
-    event StakeStatusChanged(uint256 stakeId, StakeStatus status);
-    event EscrowStatusChanged(uint256 stakeId, EscrowStatus status);
+    event StakeStatusChanged(uint256 indexed stakeId, StakeStatus status);
+    event EscrowStatusChanged(uint256 indexed stakeId, EscrowStatus status);
     event InflationRewardDistributed();
-    event NonInflationRewardDistributed();
-    // event ImplementationUpgraded(address indexed newImplementation);
-    event BatchMigrationCompleted(uint256 startId, uint256 endId);
+    event BatchMigrationCompleted(uint256 indexed startId, uint256 endId);
 
     event NewPeriodStarted(
         uint64 periodId,
-        uint64 timestamp,
-        uint256 inflationRewards,
-        uint256 ifpRewards
+        uint64 timestamp
     );
 
     event RewardsClaimed(
+        uint256 indexed stakeId,
         address indexed user,
         address indexed token,
         uint256 inflationReward,
@@ -106,13 +105,11 @@ interface ILendingPoolStakingV2 {
 
     function distributeInflationRewards(uint256 _inflationReward) external;
 
-    function hasPendingNonInflationRewards() external view returns (bool);
+    // function hasPendingNonInflationRewards() external view returns (bool);
 
     function unstake(uint256 _stakeId) external;
 
     function addStakeToken(address _stakeToken) external;
 
     function removeStakeToken(address _stakeToken) external;
-
-
 }

@@ -1,7 +1,7 @@
 const { expect } = require('chai');
 const { assert } = require('console');
 const { providers, BigNumber } = require('ethers');
-const { ethers, waffle } = require('hardhat');
+const { ethers, waffle, upgrades } = require('hardhat');
 
 describe('Vault contract', function () {
   const testName = 'Test Token';
@@ -16,8 +16,18 @@ describe('Vault contract', function () {
   before(async () => {
     [owner, sender, operator, recipient] = await ethers.getSigners();
 
+    // Deploy Vault properly as an upgradeable contract with initialization
     const factory = await ethers.getContractFactory('Vault');
-    vaultContract = await factory.deploy('test vault');
+    vaultContract = await upgrades.deployProxy(factory, ['test vault'], {
+      initializer: 'initialize',
+    });
+    await vaultContract.deployed();
+
+    // Grant spender role to owner for testing
+    await vaultContract.grantRole(owner.address, 'spender', true);
+
+    // Grant operator the spender role as well
+    await vaultContract.grantRole(operator.address, 'spender', true);
 
     // mint ERC20 to lender
     const ncsf = await ethers.getContractFactory('NEND');
@@ -48,14 +58,22 @@ describe('Vault contract', function () {
       const tx = {
         to: vaultContract.address,
         // Convert currency unit from ether to wei
-        value: ethers.utils.parseEther(amountInEther)
+        value: ethers.utils.parseEther(amountInEther),
       };
       await sender.sendTransaction(tx);
-      await expect(await provider.getBalance(vaultContract.address)).to.equal(BigNumber.from('10000000000000000'));
-      await vaultContract.connect(owner).transferNative(recipient.address, '10000000000000000');
-      await expect(await provider.getBalance(vaultContract.address)).to.equal(BigNumber.from(0));
+      await expect(await provider.getBalance(vaultContract.address)).to.equal(
+        BigNumber.from('10000000000000000')
+      );
+      await vaultContract
+        .connect(owner)
+        .transferNative(recipient.address, '10000000000000000');
+      await expect(await provider.getBalance(vaultContract.address)).to.equal(
+        BigNumber.from(0)
+      );
       const finalBalance = await provider.getBalance(recipient.address);
-      await expect(finalBalance.sub(originalBalance)).to.equal(BigNumber.from('10000000000000000'));
+      await expect(finalBalance.sub(originalBalance)).to.equal(
+        BigNumber.from('10000000000000000')
+      );
     });
   });
   describe('ERC20 transfer', function () {
@@ -67,27 +85,21 @@ describe('Vault contract', function () {
       await expect(await nendC.balanceOf(vaultAddr)).to.equal(20);
       await expect(await nendC.balanceOf(sender.address)).to.equal(80);
 
-      await vaultContract.connect(owner).transferERC20(
-        nendC.address,
-        recipient.address,
-        10
-      );
+      await vaultContract
+        .connect(owner)
+        .transferERC20(nendC.address, recipient.address, 10);
       await expect(await nendC.balanceOf(vaultAddr)).to.equal(10);
       await expect(await nendC.balanceOf(recipient.address)).to.equal(10);
     });
     it('recieve, approve and send by operator', async () => {
       try {
         const vaultAddr = vaultContract.address;
-        await vaultContract.connect(owner).approveERC20Transfer(
-          nendC.address,
-          operator.address,
-          10
-        );
-        await nendC.connect(operator).transferFrom(
-          vaultAddr,
-          recipient.address,
-          10
-        );
+        await vaultContract
+          .connect(owner)
+          .approveERC20Transfer(nendC.address, operator.address, 10);
+        await nendC
+          .connect(operator)
+          .transferFrom(vaultAddr, recipient.address, 10);
         await expect(await nendC.balanceOf(vaultAddr)).to.equal(0);
         await expect(await nendC.balanceOf(recipient.address)).to.equal(20);
       } catch (e) {
@@ -98,23 +110,27 @@ describe('Vault contract', function () {
   describe('ERC721 transfer', function () {
     it('recieve and send by owner', async () => {
       const vaultAddr = vaultContract.address;
-      const tx = await perifiNFT.connect(sender).transferFrom(sender.address, vaultAddr, 1);
+      const tx = await perifiNFT
+        .connect(sender)
+        .transferFrom(sender.address, vaultAddr, 1);
       await tx.wait();
 
       await expect(await perifiNFT.ownerOf(1)).to.equal(vaultAddr);
 
-      await vaultContract.connect(owner).transferERC721(
-        perifiNFT.address,
-        recipient.address,
-        1
-      );
-      await perifiNFT.connect(recipient).transferFrom(recipient.address, sender.address, 1);
+      await vaultContract
+        .connect(owner)
+        .transferERC721(perifiNFT.address, recipient.address, 1);
+      await perifiNFT
+        .connect(recipient)
+        .transferFrom(recipient.address, sender.address, 1);
     });
     it('recieve, approve and send by operator', async () => {
       try {
         const vaultAddr = vaultContract.address;
         try {
-          const tx = await perifiNFT.connect(sender).transferFrom(sender.address, vaultAddr, 1);
+          const tx = await perifiNFT
+            .connect(sender)
+            .transferFrom(sender.address, vaultAddr, 1);
           await tx.wait();
           await expect(await perifiNFT.ownerOf(1)).to.equal(vaultAddr);
         } catch (e) {
@@ -122,12 +138,12 @@ describe('Vault contract', function () {
           throw e;
         }
         try {
-          await vaultContract.connect(owner).setERC721ApprovalForAll(
-            perifiNFT.address,
-            operator.address,
-            true
-          );
-          await perifiNFT.connect(operator).transferFrom(vaultAddr, recipient.address, 1);
+          await vaultContract
+            .connect(owner)
+            .setERC721ApprovalForAll(perifiNFT.address, operator.address, true);
+          await perifiNFT
+            .connect(operator)
+            .transferFrom(vaultAddr, recipient.address, 1);
           await expect(await perifiNFT.ownerOf(1)).to.equal(recipient.address);
         } catch (e) {
           console.log(2);

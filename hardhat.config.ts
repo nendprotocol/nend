@@ -32,13 +32,14 @@ subtask(TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS).setAction(
 // Go to https://hardhat.org/config/ to learn more
 
 const GOERLI_NODE_RPC_URL = 'https://goerli.nendfi.com/';
-const BSCTESTNET_NODE_RPC_URL = 'https://data-seed-prebsc-2-s3.bnbchain.org:8545/';
+const BSCTESTNET_NODE_RPC_URL =
+  'https://data-seed-prebsc-2-s3.bnbchain.org:8545/';
 const MUMBAI_NODE_RPC_URL = 'https://mumbai.nendfi.com/';
 const FUJI_NODE_RPC_URL = 'https://fuji.nendfi.com/';
 
 const ETH_NODE_RPC_URL = `https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
-// const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
-const BSC_NODE_RPC_URL = `https://bsc-mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
+const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
+// const BSC_NODE_RPC_URL = `https://bsc-mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
 const AVX_NODE_RPC_URL = 'https://api.avax.network/ext/bc/C/rpc';
 const AMOY_NODE_RPC_URL = 'https://rpc-amoy.polygon.technology';
 // const POLY_NODE_RPC_URL = 'https://polygon-rpc.com';
@@ -328,9 +329,39 @@ const config: HardhatUserConfig = {
       gas: 2100000,
       gasPrice: 8000000000,
       // loggingEnabled: true,
+      forking: {
+        enabled: false,
+        url: `${BSC_NODE_RPC_URL}`
+      },
+      mining: {
+        auto: true,
+        interval: 0
+      },
+      // Enable hardhat_impersonateAccount capability
+      chainId: 31337,
+      // Add account impersonation settings
+      loggingEnabled: false,
       accounts: [
         {
           privateKey: `${TESTNET_WALLET_PRIVATE_KEY}`,
+          balance: '100000000000000000000'
+        },
+        {
+          // Test user 1 - random private key (don't use for real funds)
+          privateKey:
+            '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+          balance: '100000000000000000000'
+        },
+        {
+          // Test user 2 - random private key (don't use for real funds)
+          privateKey:
+            '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+          balance: '100000000000000000000'
+        },
+        {
+          // Admin - random private key (don't use for real funds)
+          privateKey:
+            '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6',
           balance: '100000000000000000000'
         }
       ]
@@ -345,7 +376,16 @@ const config: HardhatUserConfig = {
       gas: 2100000,
       gasPrice: 8000000000,
       // loggingEnabled: true,
-      accounts: [`${TESTNET_WALLET_PRIVATE_KEY}`]
+      // Enable hardhat_impersonateAccount capability
+      chainId: 31337,
+      // Add account impersonation settings
+      loggingEnabled: false,
+      accounts: [
+        `${TESTNET_WALLET_PRIVATE_KEY}`,
+        '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d',
+        '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a',
+        '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6'
+      ]
     }
   },
   /* namedAccounts: {

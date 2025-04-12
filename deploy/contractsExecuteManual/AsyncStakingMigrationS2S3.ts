@@ -1,6 +1,5 @@
 import { HardhatRuntimeEnvironment } from 'hardhat/types';
 import { DeployFunction, Deployment } from 'hardhat-deploy/types';
-import { getLendingPoolStake } from '../nendSave';
 // import retry from '../retry';
 import inquirer from 'inquirer';
 const { ethers } = require('hardhat');
@@ -11,8 +10,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts();
   const ChainId = await getChainId();
 
-  // const contractName = ChainId === '137' ? 'StakingPool' : 'Staking';
-  const contractName = 'Staking';
+  const contractName = ChainId === '137' ? 'StakingPool' : 'Staking';
 
   interface DeploymentExt extends Deployment {
     newlyDeployed?: boolean;
@@ -40,103 +38,86 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     console.log(`Current nextStakeId in contract: ${currentNextStakeId}`);
 
-    // Get bulk stakes from db
-    console.log('Fetching stakes from database...');
-    const rawStakes = await getLendingPoolStake(ChainId);
-
-    if (!rawStakes || !Array.isArray(rawStakes) || rawStakes.length === 0) {
-      console.log('No stakes found to import');
-      return;
+    console.log('Checking migration status...');
+    let stakesDeprecated = false;
+    try {
+      // Check if stakesDeprecated exists in the upgraded contract
+      stakesDeprecated = await stakingContract.stakesDeprecated();
+      console.log(`Migration already performed: ${stakesDeprecated}`);
+    } catch (error) {
+      console.log(
+        'Contract lacks stakesDeprecated status - needs full migration'
+      );
     }
 
-    console.log(`Retrieved ${rawStakes.length} stakes from database`);
     const shouldStart = await promptUser('Are you ready to start? (yes/no): ');
 
     if (shouldStart.toLowerCase() !== 'yes') {
-      console.log('Import aborted by user');
+      console.log('Migration aborted by user');
       return;
     }
-
-    // Extract original stake IDs from database
-    const stakeIds:number[] = [];
-    // Transform stakes to match contract's expected format
-    const formattedStakes = rawStakes.map((stake, index) => {
-      stakeIds.push(stake.stakeId);
-      // Convert Date objects to timestamps (seconds since epoch)
-      const startTimestamp = stake.start instanceof Date
-        ? Math.floor(stake.start.getTime() / 1000)
-        : typeof stake.start === 'string'
-          ? Math.floor(new Date(stake.start).getTime() / 1000)
-          : Number(stake.start) || 0;
-
-      const endTimestamp = stake.end instanceof Date
-        ? Math.floor(stake.end.getTime() / 1000)
-        : typeof stake.end === 'string'
-          ? Math.floor(new Date(stake.end).getTime() / 1000)
-          : Number(stake.end) || 0;
-
-      // Parse amountsPerDuration array safely
-      const amountsArray = Array.isArray(stake.amountsPerDuration)
-        ? [
-            ethers.BigNumber.from(stake.amountsPerDuration[0] || 0),
-            ethers.BigNumber.from(stake.amountsPerDuration[1] || 0),
-            ethers.BigNumber.from(stake.amountsPerDuration[2] || 0)
-          ]
-        : typeof stake.amountsPerDuration === 'string'
-          ? JSON.parse(stake.amountsPerDuration).map((amt: string) => ethers.BigNumber.from(amt || 0))
-          : [ethers.BigNumber.from(0), ethers.BigNumber.from(0), ethers.BigNumber.from(0)];
-
-      return {
-        staker: stake.staker || ethers.constants.AddressZero,
-        token: stake.token || ethers.constants.AddressZero,
-        start: startTimestamp,
-        end: endTimestamp,
-        amountsPerDuration: amountsArray,
-        rewardAllocated: ethers.BigNumber.from(stake.rewardAllocated || 0),
-        isEscrow: !!stake.isEscrow,
-        escrowStatus: stake.escrowStatus || 0,
-        stakeStatus: stake.stakeStatus || 0
-      };
-    });
-
-    if (formattedStakes.length !== stakeIds.length) {
-      console.log('formattedStakes[0]', formattedStakes[0]);
-      console.log('stakeIds[0]', stakeIds[0]);
-      console.log(`Mismatch in stakes count: ${formattedStakes.length} vs ${stakeIds.length}`);
-    }
-
-    console.log('stakeIds', stakeIds);
 
     let currentGasPrice = await ethers.provider.getGasPrice();
     let gasPriceGwei = parseFloat(ethers.utils.formatUnits(currentGasPrice, 'gwei'));
     console.log(`Starting with gas price: ${gasPriceGwei.toFixed(2)} gwei`);
 
-    // Confirm before proceeding
-    console.log(`Ready to import ${formattedStakes.length} stakes`);
-    const shouldProceed = await promptUser('Proceed with import? (yes/no): ');
+    // Execute in batches if there are many stakes
+    let batchSize = 50; // Adjust based on gas limits
+    let nextStakeId = 1;
 
-    if (shouldProceed.toLowerCase() !== 'yes') {
-      console.log('Import aborted by user');
+    // Try to get an estimate from contract data
+    try {
+      // This is a placeholder - you may need a different approach to estimate the stake count
+      nextStakeId = currentNextStakeId.toNumber();
+      console.log(
+        `Estimated stakes to migrate: ${nextStakeId}`
+      );
+    } catch (countError) {
+      console.log(
+        'Could not estimate stake count - using default of 1'
+      );
+    }
+
+    if (nextStakeId <= 1) {
+      console.log('No stakes to migrate');
       return;
     }
 
-    // Execute in batches if there are many stakes
-    const BATCH_SIZE = 20; // Adjust based on gas limits
-    const batches = [];
-
-    for (let i = 0; i < formattedStakes.length; i += BATCH_SIZE) {
-      batches.push(formattedStakes.slice(i, i + BATCH_SIZE));
-    }
-
-    console.log(`Split import into ${batches.length} batches`);
+    // Calculate number of batches needed
+    const batches = Math.ceil(nextStakeId / batchSize);
 
     // Replace the existing transaction handling code with this improved version
-    for (let i = 0; i < batches.length; i++) {
-      console.log(`Importing batch ${i + 1}/${batches.length} (${batches[i].length} stakes)...`);
-      const batchStakeIds = stakeIds.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+    for (let i = 1; i < batches; i++) {
+      batchSize = 50; // Reset batch size for each iteration
+      const startId = 1 + i * batchSize;
+
+      // if (startId === 551) {
+      //   batchSize = 15; // Adjust batch size for this range
+      // } else if (startId >= 601 && startId < 1201) {
+      //   continue; // Skip the range from 551 to 801
+      // } else if (startId >= 1201 && startId < 1251) {
+      //   startId = 1206;
+      //   batchSize = 51; // Adjust batch size for this range
+      // } else if (startId >= 1251 && startId < 2000) {
+      //   continue; // Skip the range from 1251 to 2000
+      // } else if (startId >= 2001 && startId < 2051) {
+      //   startId = 2049;
+      //   batchSize = 2; // Adjust batch size for this range
+      // } else if (startId >= 2051 && startId < 2101) {
+      //   continue; // Exit the loop if startId exceeds 2051
+      // } else if (startId >= 2101) {
+      //   startId = 2102;
+      //   batchSize = 1; // Adjust batch size for this range
+      // } else if (startId > 2102) {
+      //   break;
+      // }
+      console.log(
+        `Migrating batch ${
+          i + 1
+        }/${batches}, starting at ID ${startId}`
+      );
 
       // Get a direct contract instance for low-level transaction control
-      const stakingContract = await ethers.getContractAt('LendingPoolStakingV2', StakingDeployment.address);
       const signer = await ethers.getSigner(deployer);
 
       // Start with current gas price
@@ -146,7 +127,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
       let nonce = await signer.getTransactionCount();
       let txHash = null;
-      let replacementAttempts = 0;
       let startTime = Date.now();
 
       while (true) {
@@ -156,11 +136,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             console.log(`Submitting transaction with gas price: ${gasPriceGwei.toFixed(2)} gwei`);
 
             // Create a promise for the contract call
-            const txPromise = stakingContract.connect(signer).importStakes(
-              batches[i],
-              batchStakeIds,
+            const txPromise = stakingContract.connect(signer).migrateStakesInBatch(
+              startId,
+              batchSize,
               {
-                gasLimit: 5000000,
+                gasLimit: 14000000,
                 gasPrice: currentGasPrice,
                 nonce // Use same nonce for replacement
               }
@@ -172,11 +152,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             });
 
             try {
+              startTime = Date.now();
               // Race between the transaction and the timeout
               const tx = await Promise.race([txPromise, timeoutPromise]);
               txHash = tx.hash;
               console.log(`Transaction submitted with hash: ${txHash}`);
-              startTime = Date.now();
             } catch (timeoutErr: any) {
               console.error(timeoutErr.message);
 
@@ -195,42 +175,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             }
           }
 
-          // Check transaction status
-          const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-
-          if (elapsedSeconds >= 60 && replacementAttempts < 3) {
-            // Transaction pending for too long, ask to speed up
-            console.log(`Transaction pending for ${elapsedSeconds} seconds...`);
-            const shouldSpeedUp = await promptUser('Speed up transaction with higher gas price? (yes/no): ');
-
-            if (shouldSpeedUp.toLowerCase() === 'yes') {
-              // Increase by 25% each time
-              const newGasPrice = currentGasPrice.mul(125).div(100);
-              const newGasPriceGwei = parseFloat(ethers.utils.formatUnits(newGasPrice, 'gwei'));
-
-              console.log(`Replacing transaction with higher gas price: ${newGasPriceGwei.toFixed(2)} gwei`);
-
-              // Submit replacement transaction with same nonce but higher gas price
-              const replacementTx = await stakingContract.connect(signer).importStakes(
-                batches[i],
-                batchStakeIds,
-                {
-                  gasLimit: 5000000,
-                  gasPrice: newGasPrice,
-                  nonce
-                }
-              );
-
-              txHash = replacementTx.hash;
-              currentGasPrice = newGasPrice;
-              gasPriceGwei = newGasPriceGwei;
-              replacementAttempts++;
-              startTime = Date.now(); // Reset timer after replacement
-
-              console.log(`Replacement transaction submitted with hash: ${txHash}`);
-            }
-          }
-
           // Check for receipt (non-blocking way)
           const receipt = await ethers.provider.getTransactionReceipt(txHash);
           if (receipt) {
@@ -241,6 +185,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
               throw new Error('Transaction failed on-chain');
             }
           }
+
+          // Check transaction status
+          const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
 
           // No receipt yet, wait a bit before checking again
           console.log(`Waiting for confirmation... (${elapsedSeconds}s elapsed)`);
@@ -257,8 +204,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           // Ask to retry with higher gas or abort
           const shouldRetry = await promptUser('Retry with higher gas price? (yes/no): ');
           if (shouldRetry.toLowerCase() === 'yes') {
-            // Increase gas by 30%
-            currentGasPrice = currentGasPrice.mul(130).div(100);
+            // Increase gas by 25%
+            currentGasPrice = currentGasPrice.mul(125).div(100);
             gasPriceGwei = parseFloat(ethers.utils.formatUnits(currentGasPrice, 'gwei'));
             console.log(`Increased gas price to ${gasPriceGwei.toFixed(2)} gwei`);
             txHash = null; // Reset to trigger new submission
@@ -275,16 +222,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     // Verify final state
     const newNextStakeId = await stakingContract.nextStakeId();
-    const activeStakesCount = await stakingContract.activeStakesCount();
 
-    console.log('All stakes imported successfully!');
+    console.log('migration complete successfully!');
     console.log(`New nextStakeId: ${newNextStakeId} (increased by ${newNextStakeId - currentNextStakeId})`);
-    console.log(`Total active stakes count: ${activeStakesCount}`);
   } catch (error) {
     console.error('Execution failed:', error);
   }
 };
 
 export default func;
-func.tags = ['AsyncBulkImportStakes'];
+func.tags = ['AsyncStakingMigrationS2S3'];
 func.dependencies = []; // Add any dependencies if needed
