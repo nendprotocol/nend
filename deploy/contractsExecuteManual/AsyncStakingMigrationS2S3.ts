@@ -16,15 +16,22 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     newlyDeployed?: boolean;
   }
 
-  async function promptUser (question: string): Promise<string> {
+  async function promptUser (question: string, choices?: string[]): Promise<string> {
     try {
-      const answers = await inquirer.prompt([{
-        type: 'input', name: 'response', message: question
-      }]);
-      return answers.response;
+      if (choices) {
+        const answers = await inquirer.prompt([{
+          type: 'list', name: 'response', message: question, choices
+        }]);
+        return answers.response;
+      } else {
+        const answers = await inquirer.prompt([{
+          type: 'input', name: 'response', message: question
+        }]);
+        return answers.response;
+      }
     } catch (error) {
       console.error('Error during user prompt:', error);
-      return 'no';
+      return '';
     }
   }
 
@@ -50,7 +57,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       );
     }
 
-    const shouldStart = await promptUser('Are you ready to start? (yes/no): ');
+    const shouldStart = await promptUser('Are you ready to start?', ['yes', 'no']);
 
     if (shouldStart.toLowerCase() !== 'yes') {
       console.log('Migration aborted by user');
@@ -87,7 +94,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const batches = Math.ceil(nextStakeId / batchSize);
 
     // Replace the existing transaction handling code with this improved version
-    for (let i = 1; i < batches; i++) {
+    for (let i = 0; i < 1; i++) {
       batchSize = 50; // Reset batch size for each iteration
       const startId = 1 + i * batchSize;
 
@@ -161,7 +168,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
               console.error(timeoutErr.message);
 
               // Ask user if they want to retry with higher gas
-              const retry = await promptUser('Transaction submission timed out. Retry with higher gas price? (yes/no): ');
+              const retry = await promptUser('Transaction submission timed out. Retry with higher gas price?', ['yes', 'no']);
               if (retry.toLowerCase() === 'yes') {
                 // Increase gas price by 20% if estimation is failing
                 currentGasPrice = currentGasPrice.mul(120).div(100);
@@ -202,7 +209,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           }
 
           // Ask to retry with higher gas or abort
-          const shouldRetry = await promptUser('Retry with higher gas price? (yes/no): ');
+          const shouldRetry = await promptUser('Retry with higher gas price?', ['yes', 'no']);
           if (shouldRetry.toLowerCase() === 'yes') {
             // Increase gas by 25%
             currentGasPrice = currentGasPrice.mul(125).div(100);

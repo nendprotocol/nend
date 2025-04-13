@@ -99,7 +99,7 @@ library StakingLib {
             storage userSpecificStakes,
         uint256 userStakeCount,
         ILendingPoolStakingV2.RewardPeriod[2] storage _recentPeriods,
-        mapping(address => mapping(uint64 => bool))
+        mapping(address => mapping(uint64 => mapping(address => bool)))
             storage _userClaimedForPeriod,
         mapping(address => mapping(uint8 => uint256))
             storage totalStakedByToken_Duration,
@@ -115,7 +115,7 @@ library StakingLib {
         ];
 
         // If the user already claimed for this period, return zeros
-        if (_userClaimedForPeriod[_user][period.periodId]) {
+        if (_userClaimedForPeriod[_user][period.periodId][_token]) {
             return (0, 0);
         }
 
@@ -164,7 +164,7 @@ library StakingLib {
         mapping(address => mapping(uint8 => uint256))
             storage totalStakedByToken_Duration,
         uint256 userStakeCount,
-        mapping(address => mapping(uint64 => bool))
+        mapping(address => mapping(uint64 => mapping(address => bool)))
             storage _userClaimedForPeriod,
         ILendingPoolStakingV2.RewardPeriod storage period,
         address _token,
@@ -175,7 +175,7 @@ library StakingLib {
         returns (uint256 inflationReward, uint256 ifpReward, uint64 periodId)
     {
         // Check if already claimed
-        if (_userClaimedForPeriod[user][period.periodId]) {
+        if (_userClaimedForPeriod[user][period.periodId][_token]) {
             revert ILendingPoolStakingV2.AlreadyClaimed();
         }
 
@@ -222,7 +222,7 @@ library StakingLib {
         periodId = period.periodId;
 
         // Mark as claimed for this period
-        _userClaimedForPeriod[user][period.periodId] = true;
+        _userClaimedForPeriod[user][period.periodId][_token] = true;
 
         return (inflationReward, ifpReward, periodId);
     }
@@ -241,9 +241,7 @@ library StakingLib {
         external
         returns (
             uint256 stakedAmount,
-            // uint256 rewardAmount,
-            address tokenToUse,
-            bool needsBurn
+            address tokenToUse
         )
     {
         // Validate
@@ -253,8 +251,7 @@ library StakingLib {
 
         if (
             stake.end > block.timestamp ||
-            stake.stakeStatus == ILendingPoolStakingV2.StakeStatus.FULFILLED ||
-            stake.escrowStatus == ILendingPoolStakingV2.EscrowStatus.CLAIMED
+            stake.stakeStatus == ILendingPoolStakingV2.StakeStatus.FULFILLED
         ) {
             revert ILendingPoolStakingV2.InvalidState();
         }
@@ -267,8 +264,6 @@ library StakingLib {
                 stake.amountsPerDuration[2];
         }
 
-        // Get reward and token
-        // rewardAmount = stake.rewardAllocated;
         tokenToUse = stake.isEscrow ? nend : stake.token;
 
         // Update totals if staked
@@ -285,17 +280,6 @@ library StakingLib {
 
         // Update state
         stake.stakeStatus = ILendingPoolStakingV2.StakeStatus.FULFILLED;
-
-        // Check if burn needed
-        needsBurn =
-            stake.escrowStatus == ILendingPoolStakingV2.EscrowStatus.ISSUED ||
-            stake.isEscrow;
-
-        if (needsBurn) {
-            stake.escrowStatus = ILendingPoolStakingV2.EscrowStatus.CLAIMED;
-        }
-
-        return (stakedAmount, /* rewardAmount, */ tokenToUse, needsBurn);
     }
 
     /**

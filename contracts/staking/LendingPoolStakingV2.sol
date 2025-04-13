@@ -64,12 +64,12 @@ contract LendingPoolStakingV2 is
     // current reward period
     uint256 private _currentPeriodIdx;
     // fee period
-    RewardPeriod[REWARD_PERIOD_LENGTH] private _recentPeriods;
+    RewardPeriod[REWARD_PERIOD_LENGTH] public recentPeriods;
     // V3 storage
     mapping(address => mapping(uint256 => Stake)) public userStakesById; // user => stakeId ==> stake
     mapping(address => uint256) public userStakesCount; // user => stake count
     // Track which periods a user has claimed rewards for
-    mapping(address => mapping(uint64 => bool)) private _userClaimedForPeriod; // user => periodId => claimed
+    mapping(address => mapping(uint64 => mapping(address => bool))) private _userClaimedForPeriod; // user => periodId => claimed
     mapping(uint256 => StakeMappingEntry) private _stakeEntries; // stakeId => metadata
     mapping(address => mapping(uint256 => uint256)) private _userIndexToId; // user => userIndex => stakeId
 
@@ -169,7 +169,7 @@ contract LendingPoolStakingV2 is
         uint256 index
     ) internal view returns (RewardPeriod storage) {
         return
-            _recentPeriods[
+            recentPeriods[
                 (_currentPeriodIdx + index) % uint256(REWARD_PERIOD_LENGTH)
             ];
     }
@@ -291,10 +291,9 @@ contract LendingPoolStakingV2 is
         address _user,
         uint256 _index
     ) external view returns (Stake memory) {
-        require(
-            _index > 0 && _index <= userStakesCount[_user],
-            "Invalid stake index"
-        );
+        if(_index <= 0 || _index > userStakesCount[_user]){
+            revert StakeNotFound();
+        }
         return userStakesById[_user][_index];
     }
 
@@ -327,9 +326,10 @@ contract LendingPoolStakingV2 is
         uint256 _ifpReward
     ) internal returns (uint256 stakeId) {
         uint256[3] memory _amounts;
-        // Distribute the reward amount across durations according to your allocation policy
+        // Distribute the reward amount across durations and save it in the mapping
         for (uint8 i = 0; i < 3; ) {
             _amounts[i] = (_rewardAmount * rewardAllocations[i]) / 100;
+            totalStakedByToken_Duration[nend][i] += _amounts[i];
             unchecked {
                 ++i;
             }
@@ -358,13 +358,7 @@ contract LendingPoolStakingV2 is
 
         // set IFP reward
         newStake.rewardAllocated = _ifpReward;
-
-        // Update the total staked amount for the escrowed stake
-        StakingLib._saveStakedRewards(
-            totalStakedByToken_Duration,
-            nend,
-            _amounts
-        );
+        newStake.escrowStatus = EscrowStatus.CLAIMED;
 
         // Emit the event
         _emitStaked(stakeId, userStakesById[_staker][userStakeIdx]);
@@ -380,7 +374,7 @@ contract LendingPoolStakingV2 is
             uint256 toDistributeReward,
             uint256[] memory ifptoDistributeReward
         ) = StakingLib.calculatePoolRollOver(
-                _recentPeriods[_currentPeriodIdx],
+                recentPeriods[_currentPeriodIdx],
                 stakeTokens
             );
         toDistributeReward += _inflationReward;
@@ -400,18 +394,21 @@ contract LendingPoolStakingV2 is
                     stakeTokens[i]
                 );
                 ifptoDistributeReward[i] += ifpAccredTokenAmt;
-                // subtract the IFP token balance from the pool for backward compatibility
-                lendingPool.namedBalanceSpend(
-                    "ifp",
-                    stakeTokens[i],
-                    ifpAccredTokenAmt
-                );
-                // Transfer the IFP tokens to the contract
-                lendingPool.transferERC20(
-                    stakeTokens[i],
-                    address(this),
-                    ifpAccredTokenAmt
-                );
+
+                if (ifpAccredTokenAmt > 0) {
+                    // subtract the IFP token balance from the pool for backward compatibility
+                    lendingPool.namedBalanceSpend(
+                        "ifp",
+                        stakeTokens[i],
+                        ifpAccredTokenAmt
+                    );
+                    // Transfer the IFP tokens to the contract
+                    lendingPool.transferERC20(
+                        stakeTokens[i],
+                        address(this),
+                        ifpAccredTokenAmt
+                    );
+                }
             }
 
             unchecked {
@@ -421,7 +418,7 @@ contract LendingPoolStakingV2 is
 
         // set inflation and IFP rewards to the current period and get the new current period id
         _currentPeriodIdx = StakingLib.closeCurrentPeriod(
-            _recentPeriods,
+            recentPeriods,
             _currentPeriodIdx,
             toDistributeReward,
             ifptoDistributeReward,
@@ -442,7 +439,7 @@ contract LendingPoolStakingV2 is
             StakingLib.getClaimableRewards(
                 userStakesById[_user],
                 userStakesCount[_user],
-                _recentPeriods,
+                recentPeriods,
                 _userClaimedForPeriod,
                 totalStakedByToken_Duration,
                 _currentPeriodIdx,
@@ -477,6 +474,8 @@ contract LendingPoolStakingV2 is
             userInflationReward,
             userIfpReward
         );
+
+        // Transfer the IFP reward to the user
         IERC20(_token).transfer(msg.sender, userIfpReward);
 
         emit RewardsClaimed(
@@ -495,7 +494,7 @@ contract LendingPoolStakingV2 is
         returns (uint256 inflationRewardRemained)
     {
         (inflationRewardRemained, ) = StakingLib.calculatePoolRollOver(
-            _recentPeriods[_currentPeriodIdx],
+            recentPeriods[_currentPeriodIdx],
             stakeTokens
         );
     }
@@ -556,9 +555,7 @@ contract LendingPoolStakingV2 is
         // Use library to handle most of the logic
         (
             uint256 stakedAmount,
-            // uint256 rewardAmount,
-            address tokenToUse,
-            bool needsBurn
+            address tokenToUse
         ) = StakingLib.processUnstake(
                 _stake,
                 totalStakedByToken_Duration,
@@ -578,18 +575,14 @@ contract LendingPoolStakingV2 is
             );
         }
 
-        // already handled in cliam
-        // if (rewardAmount > 0) {
-        //     IERC20(tokenToUse).transfer(msg.sender, rewardAmount);
-        // }
-
         // Handle events and burns
         emit StakeStatusChanged(_stakeId, StakeStatus.FULFILLED);
 
-        if (needsBurn) {
+        if (_stake.escrowStatus == EscrowStatus.ISSUED) {
             if (_exists(_stakeId)) {
                 _burn(_stakeId);
             }
+            _stake.escrowStatus = EscrowStatus.CLAIMED;
             emit EscrowStatusChanged(_stakeId, EscrowStatus.CLAIMED);
         }
 

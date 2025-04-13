@@ -105,8 +105,6 @@ interface ILendingPoolStakingV2 {
 
     function distributeInflationRewards(uint256 _inflationReward) external;
 
-    // function hasPendingNonInflationRewards() external view returns (bool);
-
     function unstake(uint256 _stakeId) external;
 
     function addStakeToken(address _stakeToken) external;
