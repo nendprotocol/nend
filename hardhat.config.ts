@@ -38,12 +38,13 @@ const MUMBAI_NODE_RPC_URL = 'https://mumbai.nendfi.com/';
 const FUJI_NODE_RPC_URL = 'https://fuji.nendfi.com/';
 
 const ETH_NODE_RPC_URL = `https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
-const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
-// const BSC_NODE_RPC_URL = `https://bsc-mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
+// const BSC_NODE_RPC_URL = 'https://bsc-dataseed1.binance.org/';
+const BSC_NODE_RPC_URL = `https://bsc-mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
 const AVX_NODE_RPC_URL = 'https://api.avax.network/ext/bc/C/rpc';
 const AMOY_NODE_RPC_URL = 'https://rpc-amoy.polygon.technology';
 // const POLY_NODE_RPC_URL = 'https://polygon-rpc.com';
-const POLY_NODE_RPC_URL = 'https://rpc.ankr.com/polygon';
+// const POLY_NODE_RPC_URL = 'https://rpc.ankr.com/polygon';
+const POLY_NODE_RPC_URL = `https://polygon-mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`;
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
 
 const TESTNET_WALLET_PRIVATE_KEY = process.env.TEST_PRIVATE_KEY; // Nend Turbo Main Wallet testnet

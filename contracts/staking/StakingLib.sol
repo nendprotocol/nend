@@ -345,7 +345,6 @@ library StakingLib {
 
             // Only include active stakes for the specific token
             if (stake.stakeStatus == ILendingPoolStakingV2.StakeStatus.STAKED) {
-                // Check if the token matches:
                 // 1. For escrow stakes, we use nend token
                 // 2. For regular stakes, use the actual token
                 bool isMatchingToken = stake.isEscrow

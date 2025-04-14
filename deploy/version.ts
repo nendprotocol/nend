@@ -2,7 +2,7 @@
 const version = {
   mainnet: true,
   turbo: false,
-  number: 2.24 // max: 9999999999
+  number: 2.30 // max: 9999999999
 };
 
 // ----testnet

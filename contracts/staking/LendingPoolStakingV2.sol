@@ -12,7 +12,7 @@ import "./StakingLib.sol";
 
 // Storage layout v1: Used _oldStakes[] array
 // Storage layout v2: Uses mapping(uint256 => Stake) stakes
-// Storage layout v3: Uses userStakesById[user][index] for user-centric access
+// Storage layout v3: Uses _userStakesById[user][index] for user-centric access
 
 contract LendingPoolStakingV2 is
     ILendingPoolStakingV2,
@@ -66,7 +66,7 @@ contract LendingPoolStakingV2 is
     // fee period
     RewardPeriod[REWARD_PERIOD_LENGTH] public recentPeriods;
     // V3 storage
-    mapping(address => mapping(uint256 => Stake)) public userStakesById; // user => stakeId ==> stake
+    mapping(address => mapping(uint256 => Stake)) private _userStakesById; // user => stakeId ==> stake
     mapping(address => uint256) public userStakesCount; // user => stake count
     // Track which periods a user has claimed rewards for
     mapping(address => mapping(uint64 => mapping(address => bool))) private _userClaimedForPeriod; // user => periodId => claimed
@@ -136,7 +136,7 @@ contract LendingPoolStakingV2 is
         for (uint256 i = startId; i < endId; ) {
             StakingLib.migrateStake(
                 stakes,
-                userStakesById[stakes[i].staker],
+                _userStakesById[stakes[i].staker],
                 userStakesCount,
                 _stakeEntries,
                 _userIndexToId,
@@ -265,7 +265,7 @@ contract LendingPoolStakingV2 is
         uint256 stakeId = nextStakeId++;
         uint256 userStakeIdx = ++userStakesCount[msg.sender];
         // Directly initialize the stake in storage
-        Stake storage newStake = userStakesById[msg.sender][userStakeIdx];
+        Stake storage newStake = _userStakesById[msg.sender][userStakeIdx];
 
         // Create the stake
         StakingLib._createAndMapStake(
@@ -284,24 +284,24 @@ contract LendingPoolStakingV2 is
 
         totalStakedByToken_Duration[_token][_durationId] += _amount;
 
-        _emitStaked(stakeId, userStakesById[msg.sender][userStakeIdx]);
+        _emitStaked(stakeId, newStake);
     }
 
     function getStakeByUserIndex(
         address _user,
         uint256 _index
     ) external view returns (Stake memory) {
-        if(_index <= 0 || _index > userStakesCount[_user]){
+        if (_index <= 0 || _index > userStakesCount[_user]) {
             revert StakeNotFound();
         }
-        return userStakesById[_user][_index];
+        return _userStakesById[_user][_index];
     }
 
     function stakeEscrowedReward(uint256 _stakeId) external virtual override {
         // uint256 userIndex = stakeIdToUserIndex[_stakeId][msg.sender];
         uint256 userIndex = getUserStakeIndex(_stakeId);
         if (userIndex == 0) revert StakeNotFound();
-        Stake storage _stake = userStakesById[msg.sender][userIndex];
+        Stake storage _stake = _userStakesById[msg.sender][userIndex];
         if (_stake.staker != msg.sender) revert Unauthorized();
 
         // Stake is not escrow or is already staked
@@ -322,6 +322,7 @@ contract LendingPoolStakingV2 is
 
     function _createEscrowStake(
         address _staker,
+        address _token,
         uint256 _rewardAmount,
         uint256 _ifpReward
     ) internal returns (uint256 stakeId) {
@@ -339,7 +340,7 @@ contract LendingPoolStakingV2 is
         nextStakeId++;
         uint256 userStakeIdx = ++userStakesCount[_staker];
         // Directly initialize the stake in storage
-        Stake storage newStake = userStakesById[_staker][userStakeIdx];
+        Stake storage newStake = _userStakesById[_staker][userStakeIdx];
 
         // Create the escrow stake - direct initialization avoids memory/storage copying
         StakingLib._createAndMapStake(
@@ -356,12 +357,15 @@ contract LendingPoolStakingV2 is
             testing
         );
 
-        // set IFP reward
-        newStake.rewardAllocated = _ifpReward;
-        newStake.escrowStatus = EscrowStatus.CLAIMED;
+        if (_ifpReward > 0) {
+            // set IFP reward
+            newStake.rewardAllocated = _ifpReward;
+            // Transfer the IFP reward to the user
+            IERC20(_token).transfer(msg.sender, _ifpReward);
+        }
 
         // Emit the event
-        _emitStaked(stakeId, userStakesById[_staker][userStakeIdx]);
+        _emitStaked(stakeId, newStake);
     }
 
     function distributeInflationRewards(
@@ -437,7 +441,7 @@ contract LendingPoolStakingV2 is
     ) external view returns (uint256 inflationReward, uint256 ifpReward) {
         return
             StakingLib.getClaimableRewards(
-                userStakesById[_user],
+                _userStakesById[_user],
                 userStakesCount[_user],
                 recentPeriods,
                 _userClaimedForPeriod,
@@ -458,7 +462,7 @@ contract LendingPoolStakingV2 is
             uint256 userIfpReward,
             uint64 periodId
         ) = StakingLib.processClaim(
-                userStakesById[msg.sender],
+                _userStakesById[msg.sender],
                 totalStakedByToken_Duration,
                 userStakesCount[msg.sender],
                 _userClaimedForPeriod,
@@ -471,12 +475,10 @@ contract LendingPoolStakingV2 is
         // Create an escrow stake for the inflation reward
         uint256 stakeId = _createEscrowStake(
             msg.sender,
+            _token,
             userInflationReward,
             userIfpReward
         );
-
-        // Transfer the IFP reward to the user
-        IERC20(_token).transfer(msg.sender, userIfpReward);
 
         emit RewardsClaimed(
             stakeId,
@@ -499,22 +501,13 @@ contract LendingPoolStakingV2 is
         );
     }
 
-    // function getToTalStakedForToken(
-    //     address _token
-    // ) external view returns (uint256) {
-    //     return StakingLib.getTotalStakesForToken(
-    //         totalStakedByToken_Duration,
-    //         _token
-    //     );
-    // }
-
     function getUserStakesTotal(
         address _user,
         address _token
     ) external view returns (uint256) {
         return
             StakingLib.calculateUserStakesTotal(
-                userStakesById[_user],
+                _userStakesById[_user],
                 userStakesCount[_user],
                 _token,
                 nend
@@ -526,7 +519,7 @@ contract LendingPoolStakingV2 is
         uint256 userIndex = getUserStakeIndex(_stakeId);
         if (userIndex == 0) revert StakeNotFound();
 
-        Stake storage _stake = userStakesById[msg.sender][userIndex];
+        Stake storage _stake = _userStakesById[msg.sender][userIndex];
         if (_stake.staker != msg.sender) {
             revert Unauthorized();
         }
@@ -550,18 +543,15 @@ contract LendingPoolStakingV2 is
         uint256 userIndex = getUserStakeIndex(_stakeId);
         if (userIndex == 0) revert StakeNotFound();
 
-        Stake storage _stake = userStakesById[msg.sender][userIndex];
+        Stake storage _stake = _userStakesById[msg.sender][userIndex];
 
         // Use library to handle most of the logic
-        (
-            uint256 stakedAmount,
-            address tokenToUse
-        ) = StakingLib.processUnstake(
-                _stake,
-                totalStakedByToken_Duration,
-                nend,
-                msg.sender
-            );
+        (uint256 stakedAmount, address tokenToUse) = StakingLib.processUnstake(
+            _stake,
+            totalStakedByToken_Duration,
+            nend,
+            msg.sender
+        );
 
         // Handle transfers (kept in contract due to external calls)
         if (_stake.isEscrow) {
@@ -631,7 +621,7 @@ contract LendingPoolStakingV2 is
         uint256 _userIndex
     ) internal virtual {
         StakingLib.removeUserStake(
-            userStakesById[_user],
+            _userStakesById[_user],
             _stakeEntries,
             _userIndexToId,
             userStakesCount,
@@ -652,7 +642,7 @@ contract LendingPoolStakingV2 is
             uint256 fromUserIndex = getUserStakeIndex(tokenId);
             if (fromUserIndex > 0) {
                 // Get the stake into memory first
-                Stake memory stakeCopy = userStakesById[from][fromUserIndex];
+                Stake memory stakeCopy = _userStakesById[from][fromUserIndex];
 
                 // Update stake owner in memory
                 stakeCopy.staker = to;
@@ -662,7 +652,7 @@ contract LendingPoolStakingV2 is
 
                 // Add to new owner
                 uint256 toUserIndex = userStakesCount[to] + 1;
-                userStakesById[to][toUserIndex] = stakeCopy;
+                _userStakesById[to][toUserIndex] = stakeCopy;
                 StakingLib.setStakeMapping(
                     _stakeEntries,
                     _userIndexToId,
@@ -677,7 +667,7 @@ contract LendingPoolStakingV2 is
 
     function _emitStaked(
         uint256 _stakeId,
-        ILendingPoolStakingV2.Stake memory _stake
+        ILendingPoolStakingV2.Stake storage _stake
     ) private {
         emit Staked(
             _stakeId,

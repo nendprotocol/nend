@@ -15,20 +15,22 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       newlyDeployed?: boolean;
   }
 
-  // Replace your promptUser function with this:
-  async function promptUser (question: string): Promise<string> {
+  async function promptUser (question: string, choices?: string[]): Promise<string> {
     try {
-      const answers = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'response',
-          message: question
-        }
-      ]);
-      return answers.response;
+      if (choices) {
+        const answers = await inquirer.prompt([{
+          type: 'list', name: 'response', message: question, choices
+        }]);
+        return answers.response;
+      } else {
+        const answers = await inquirer.prompt([{
+          type: 'input', name: 'response', message: question
+        }]);
+        return answers.response;
+      }
     } catch (error) {
       console.error('Error during user prompt:', error);
-      return 'no'; // Default to safer option on error
+      return '';
     }
   }
 
@@ -50,24 +52,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log(`Found Staking at: ${StakingDeployment ? StakingDeployment.address : 'not deployed'}`);
 
     let cleanDeployConfirmed;
-    if (StakingDeployment) {
-      cleanDeployConfirmed = await promptUser(
-        'Would you like to delete old deployment record? (yes/no): '
-      );
+    // if (StakingDeployment) {
+    cleanDeployConfirmed = await promptUser(
+      'Would you like to delete old deployment record?', ['yes', 'no']
+    );
 
-      if ((cleanDeployConfirmed as string).toLowerCase() === 'yes') {
-        // Delete the old deployment record if it exists (this is key)
-        try {
-          await deployments.delete(contractName);
-          console.log(`Deleted old deployment record for ${contractName}`);
-        } catch (e) {
-          console.log(`No existing deployment found for ${contractName} to delete`);
-        }
-
-        // Deploy completely fresh implementation and proxy
-        console.log('Deploying new implementation and proxy from scratch...');
+    if ((cleanDeployConfirmed as string).toLowerCase() === 'yes') {
+      // Delete the old deployment record if it exists (this is key)
+      try {
+        await deployments.delete(contractName);
+        console.log(`Deleted old deployment record for ${contractName}`);
+      } catch (e) {
+        console.log(`No existing deployment found for ${contractName} to delete`);
       }
+
+      // Deploy completely fresh implementation and proxy
+      console.log('Deploying new implementation and proxy from scratch...');
     }
+    // }
 
     while (true) {
       try {
@@ -76,7 +78,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           console.log('Deploying implementation contract...');
           const implDeployment = await deploy(`${contractName}_Implementation`, {
             from: deployer,
-            contract: 'LendingPoolStakingV2',
+            contract: 'LendingPoolStaking',
             log: true,
             deterministicDeployment: mainnet
               ? ethers.utils.formatBytes32String(`${MainnetSalt}-impl`)
@@ -88,12 +90,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
           // STEP 2: Prompt for verification confirmation
           console.log('Deploying proxy using upgrades plugin...');
-          const StakingFactory = await ethers.getContractFactory('LendingPoolStakingV2');
+          const StakingFactory = await ethers.getContractFactory('LendingPoolStaking');
           const proxy = await upgrades.deployProxy(StakingFactory, [
             NendDeployment.address,
             VaultLendingPoolDeployment.address
           ], {
-            kind: 'uups',
+            kind: 'UUPS',
             unsafeAllow: ['constructor'] // Add this if your contract has a constructor
           });
 
@@ -109,7 +111,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           // STEP 4: Save deployment info
           const deployment = {
             address: proxy.address,
-            abi: (await deployments.getArtifact('LendingPoolStakingV2')).abi,
+            abi: (await deployments.getArtifact('LendingPoolStaking')).abi,
             implementation: implementationAddress,
             executions: [
               {
@@ -125,7 +127,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           // Use standard deploy
           const StakingDeployment = await deploy(contractName, {
             from: deployer,
-            contract: 'LendingPoolStakingV2',
+            contract: 'LendingPoolStaking',
             log: true,
             deterministicDeployment: mainnet
               ? ethers.utils.formatBytes32String(`${MainnetSalt}`)

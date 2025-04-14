@@ -33,24 +33,22 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Skip user prompts in non-interactive mode (useful for CI/CD)
   const skipPrompts = process.env.SKIP_PROMPTS === 'true';
 
-  async function promptUser (question: string): Promise<string> {
-    if (skipPrompts) {
-      console.log(`[Auto-answering]: ${question} -> yes`);
-      return 'yes'; // Auto-yes in non-interactive mode
-    }
-
+  async function promptUser (question: string, choices?: string[]): Promise<string> {
     try {
-      const answers = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'response',
-          message: question
-        }
-      ]);
-      return answers.response;
+      if (choices) {
+        const answers = await inquirer.prompt([{
+          type: 'list', name: 'response', message: question, choices
+        }]);
+        return answers.response;
+      } else {
+        const answers = await inquirer.prompt([{
+          type: 'input', name: 'response', message: question
+        }]);
+        return answers.response;
+      }
     } catch (error) {
       console.error('Error during user prompt:', error);
-      return 'no';
+      return '';
     }
   }
 
@@ -88,7 +86,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       );
       if (libraryCode === '0x' || libraryCode === '') {
         const shouldRecheck = await promptUser(
-          'Verifying StakingLib deployment failed. Would you like to retry to get "StakingLib" address? (yes/no): '
+          'Verifying StakingLib deployment failed. Would you like to retry to get "StakingLib" address?', ['yes', 'no']
         );
         if (shouldRecheck.toLowerCase() !== 'yes') {
           console.log('Faild to StakingLib address.');
@@ -105,7 +103,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       existingProxy = await deployments.get(contractName);
       console.log(`Found existing proxy at ${existingProxy.address}`);
       const shouldUpgrade = await promptUser(
-        'Would you like to upgrade "Staking" contract? (yes/no): '
+        `Would you like to upgrade ${contractName} contract?`, ['yes', 'no']
       );
       if (shouldUpgrade.toLowerCase() !== 'yes') {
         console.log('Upgrade skipped.');
@@ -171,7 +169,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             const implCode = await ethers.provider.getCode(paddedAddress);
             if (implCode === '0x' || implCode === '') {
               const shouldRecheck = await promptUser(
-                'Verifiying Implementation deployment failed. Would you like to retry? (yes/no): '
+                'Verifiying Implementation deployment failed. Would you like to retry?', ['yes', 'no']
               );
               if (shouldRecheck.toLowerCase() !== 'yes') {
                 console.log('Faild to verifiy Implementation.');
@@ -204,7 +202,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
             if (!stakesDeprecated) {
               const shouldMigrate = await promptUser(
-                'Would you like to migrate stakes to mapping? (yes/no): '
+                'Would you like to migrate stakes to mapping?', ['yes', 'no']
               );
               if (shouldMigrate.toLowerCase() === 'yes') {
                 console.log('Migrating stakes to mapping in batches...');
@@ -302,7 +300,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
                 if (!finalStatus) {
                   const shouldMarkComplete = await promptUser(
-                    'Migration batches completed. Mark stakes as deprecated? (yes/no): '
+                    'Migration batches completed. Mark stakes as deprecated?', ['yes', 'no']
                   );
 
                   if (shouldMarkComplete.toLowerCase() === 'yes') {
@@ -365,7 +363,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         }
 
         const shouldRetry = await promptUser(
-          'Would you like to retry? (yes/no): '
+          'Would you like to retry?', ['yes', 'no']
         );
         if (shouldRetry.toLowerCase() !== 'yes') {
           console.log('Deployment aborted.');
